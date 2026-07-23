@@ -255,6 +255,7 @@ themes/                      ← gitignored; ships empty
   "scale": 1,
 
   "states": {
+    // Simple case: horizontal strip
     "idle":       { "sheet": "idle.png",     "frames": 4, "fps": 6,  "loop": true },
     "thinking":   { "sheet": "thinking.png", "frames": 6, "fps": 10, "loop": true },
     "working":    { "sheet": "working.png",  "frames": 8, "fps": 12, "loop": true },
@@ -262,7 +263,16 @@ themes/                      ← gitignored; ships empty
     "needsInput": { "sheet": "knock.png",    "frames": 4, "fps": 8,  "loop": true  },
     "subagent":   { "sheet": "blip.png",     "frames": 3, "fps": 12, "loop": false, "next": "thinking" },
     "error":      { "sheet": "error.png",    "frames": 4, "fps": 8,  "loop": false, "next": "idle" },
-    "sleeping":   { "sheet": "sleep.png",    "frames": 2, "fps": 2,  "loop": true  }
+
+    // Grid sheet with multiple animation variants (real example: Mochi)
+    "sleeping": {
+      "sheet": "sleeping.png",
+      "grid":  { "cols": 8, "rows": 4 },
+      "fps": 4,
+      "loop": true,
+      "variants": [[0, 7], [8, 15], [16, 23], [24, 31]],
+      "variantPick": "random"
+    }
   }
 }
 ```
@@ -273,25 +283,76 @@ Single-file alternative for any state:
 "done": { "gif": "done.gif", "loop": false, "next": "idle" }   // .gif / .apng / .webp
 ```
 
-### 7.3 Sprite sheet rules
+### 7.3 Sheet layout
 
-- **Horizontal strip**, frames left → right, no padding or gaps
-- Sheet width **must** equal `frames × frame.width` (machine-checkable)
-- **PNG-32 with true alpha** — no matte color, no white background
-- Character anchored **bottom-center** so states align when swapping mid-animation
+Two layouts are supported. Frames are indexed **0-based in reading order** (left → right, then top → bottom) in both.
 
-### 7.4 Graceful degradation
+**Strip** — `"frames": N`. Sheet width must equal `N × frame.width`.
+
+**Grid** — `"grid": { "cols": C, "rows": R }`. Sheet dimensions must equal `C × frame.width` by `R × frame.height`. Total frames = `C × R`.
+
+`frame.width`/`frame.height` may be **omitted when using a grid** — they are derived as `sheetWidth / cols` and `sheetHeight / rows`. Supplying them anyway makes the validator cross-check.
+
+### 7.4 Ranges and variants
+
+- `"range": [from, to]` — play only a sub-range of frames. Lets one sheet serve several states.
+- `"variants": [[from,to], ...]` — several interchangeable animations for the *same* state.
+  - `"variantPick": "random"` (default) — choose one on each entry into the state
+  - `"variantPick": "sequential"` — advance through variants in order on each entry
+
+Variants exist because a pet that plays the *identical* animation every time reads as mechanical. Four sleep poses picked at random make the same asset feel alive at zero runtime cost.
+
+### 7.5 Image requirements
+
+- **PNG-32 with true alpha.** No matte color, no white background, and no *baked-in checkerboard* — a checkerboard means the file is a screenshot of a transparent image, not a transparent image.
+- Semi-transparent pixels are fine and encouraged (drop shadows, motion blur).
+- **Uniform padding across all frames.** Do not tightly crop each frame independently.
+- Character anchored **bottom-center** so states align when swapping mid-animation.
+- Leave deliberate headroom for above-character effects (`zzz` puffs, exclamation marks). This padding is part of the frame geometry and must be consistent sheet-wide.
+
+**Trimming rule (implementation):** when the importer trims whitespace, it must compute a **single union bounding box across every frame** and apply it uniformly. Per-frame trimming makes the character jitter as its silhouette changes between frames — a subtle bug that is very hard to diagnose after the fact.
+
+### 7.6 File naming
+
+State keys are **case-sensitive** and lowercase-camel (`needsInput`, `sleeping`). Referenced filenames must match on disk **exactly**, including case. Windows will forgive `Sleeping.png` vs `sleeping.png`; Linux and case-sensitive macOS volumes will not. The validator flags case mismatches as errors, not warnings.
+
+### 7.7 Graceful degradation
 
 - `idle` is the **only required state**. A one-file theme is valid.
 - Missing states fall back to `idle`.
 - A missing or invalid `theme.json` falls back to the **procedural** renderer, with a tray warning.
 - Missing sound files are skipped silently with a log line.
 
-### 7.5 Tooling
+### 7.8 Tooling
 
-- `theme.schema.json` — JSON Schema for editor autocomplete and validation
-- `npm run validate-theme themes/my-pet` — checks frame geometry, frame counts, alpha channel, unknown state names, and missing files, with actionable error messages
-- `docs/THEMES.md` — authoring walkthrough
+**`theme.schema.json`** — JSON Schema for editor autocomplete and validation.
+
+**`npm run validate-theme themes/my-pet`** — checks sheet geometry against `grid`/`frames`, alpha channel presence, range/variant bounds, unknown state names, filename case mismatches, and missing files. Actionable messages, not stack traces.
+
+**`npm run import-sprite`** — normalizes messy source art into a conforming sheet. This is the project's "accept messy input at one boundary" stage; the runtime only ever consumes conforming PNG-32.
+
+```bash
+npm run import-sprite -- assets/sprites/mochi/Sleeping.png \
+    --grid 8x4 --out themes/mochi/sleeping.png
+```
+
+Capabilities:
+
+| Flag | Purpose |
+|---|---|
+| *(input)* | Accepts PNG, JPG, or WebP |
+| `--grid CxR` | Declare grid layout; omit to auto-detect from transparent gutters |
+| `--key checker` | Remove a **baked-in checkerboard** (tolerance-based, survives JPG artifacts) |
+| `--key #RRGGBB` / `--key auto` | Remove a solid background colour (`auto` samples the corner pixel) |
+| `--trim-guides` | Strip authoring separator lines between cells |
+| `--trim` | Uniform union-bounding-box crop across all frames (see §7.5) |
+| `--out` | Destination; also emits a `theme.json` stub with geometry pre-filled |
+
+Conversion happens **once at import**, never in the render loop. Chroma-keying 32 frames every animation cycle would be wasted work forever, and doing it offline lets the author inspect and correct the result before it ships.
+
+> **Note on lossy sources:** JPG is the worst format for pixel art — its compression produces ringing artifacts precisely at hard colour boundaries. `--key checker` recovers usable output, but always prefer an original with a true alpha channel.
+
+**`docs/THEMES.md`** — authoring walkthrough.
 
 ---
 
@@ -382,8 +443,10 @@ A `npm run install-hooks` helper will merge these into the user's settings file 
 6. **Remaining states** — procedural animations for all 7 + idle timeout `sleeping`
 7. **Config layer** — `config.json`, defaults, then optional `rules.js`
 8. **Sound** — per-state audio, volume, mute
-9. **Theme system** — `theme.json` loader, sprite renderer, fallback chain
-10. **Theme tooling** — schema, `validate-theme`, `_template` theme, `docs/THEMES.md`
+9. **Theme system** — `theme.json` loader, sprite renderer (strip + grid), ranges, variants, fallback chain
+10. **Theme tooling** — schema, `validate-theme`, `import-sprite`, `_template` theme, `docs/THEMES.md`
+
+**First real theme:** `themes/mochi/` — a pixel-art beagle. `sleeping.png` (1920×1080, 8×4 grid, 240×270 frames, 4 sleep-pose variants) already exists and is the reference asset that drives steps 9–10.
 
 Steps 1–5 constitute the **minimum viable buddy**: a reacting pet. Everything after is enrichment along axes that don't block each other.
 

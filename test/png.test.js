@@ -75,3 +75,18 @@ test('reads the real Mochi sheet', (t) => {
   assert.equal(header.height, 1080);
   assert.equal(header.hasAlpha, true, 'the master sheet must have a real alpha channel');
 });
+
+test('returns null for spec-illegal zero dimensions', () => {
+  assert.equal(readPngHeader(fakePng(0, 0, 6)), null);
+  assert.equal(readPngHeader(fakePng(1920, 0, 6)), null);
+  assert.equal(readPngHeader(fakePng(0, 1080, 6)), null);
+  assert.equal(readPngHeader(fakePng(1, 1, 6)).width, 1, '1x1 is legal and must still parse');
+});
+
+test('returns null when the first chunk is not IHDR', () => {
+  // Long enough to clear the length guard, correct signature, wrong tag —
+  // so this reaches the IHDR check rather than being rejected earlier.
+  const buf = fakePng(64, 64, 6);
+  buf.write('IHDX', 12, 'ascii');
+  assert.equal(readPngHeader(buf), null);
+});

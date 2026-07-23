@@ -46,6 +46,12 @@ function readPngHeader(buffer) {
   const bitDepth = buffer[24];
   const colorType = buffer[25];
 
+  // The PNG spec requires both to be non-zero. Rejecting them here matters
+  // because a 0x0 sheet would sail through grid validation downstream: the
+  // derived frame size is 0/cols = 0, and the geometry check then compares
+  // 0 === 0 and passes.
+  if (width === 0 || height === 0) return null;
+
   const hasAlpha =
     colorType === COLOR_TYPE_RGBA ||
     colorType === COLOR_TYPE_GREY_ALPHA ||

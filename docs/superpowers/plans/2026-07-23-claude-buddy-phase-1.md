@@ -884,6 +884,7 @@ function createEventServer(options) {
   const token = options.token ?? null;
   const onEvent = options.onEvent;
   const now = options.now ?? Date.now;
+  const onServerError = options.onServerError ?? (() => {});
 
   function send(res, status, body) {
     res.writeHead(status, {
@@ -950,10 +951,14 @@ function createEventServer(options) {
   return {
     listen() {
       return new Promise((resolve, reject) => {
-        const onError = (err) => reject(err);
-        server.once('error', onError);
+        const onListenError = (err) => reject(err);
+        server.once('error', onListenError);
         server.listen(port, host, () => {
-          server.removeListener('error', onError);
+          server.removeListener('error', onListenError);
+          // From here on a socket error would be an unhandled 'error' event on
+          // an EventEmitter, which throws and takes the whole app down. Keep a
+          // permanent listener so a late failure is reported, not fatal.
+          server.on('error', (err) => onServerError(err));
           resolve(server.address());
         });
       });
@@ -1848,7 +1853,7 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require('electron');
 
 const { loadConfig } = require('./config.js');
-const { createStateMachine } = require('./state-machine.js');
+const { createStateMachine, ONE_SHOT } = require('./state-machine.js');
 const { createEventServer } = require('./server.js');
 
 const config = loadConfig();
@@ -1860,6 +1865,7 @@ let win = null;
 let tray = null;
 let server = null;
 let tickTimer = null;
+let cleaningUp = false;
 
 const machine = createStateMachine({
   idleTimeoutMs: config.idleTimeoutMinutes * 60 * 1000,
@@ -1871,6 +1877,23 @@ function pushStateChange(change) {
   if (!change) return;
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state-change', change);
+}
+
+/**
+ * The machine's current state, shaped as a StateChange, for resyncing the
+ * renderer after a page load.
+ *
+ * `webContents.send` does not queue for a renderer that has not subscribed
+ * yet, so an event arriving during startup is applied to the machine but never
+ * displayed. For a one-shot state that is worse than a dropped frame: the
+ * renderer never reports `animation-ended`, `completeOneShot()` never runs, the
+ * machine stays stuck in `done`, and since `tick()` only sleeps from `idle` the
+ * buddy would never sleep again either. Resyncing on load closes that window.
+ */
+function currentStateChange() {
+  const state = machine.getState();
+  const next = Object.hasOwn(ONE_SHOT, state) ? ONE_SHOT[state] : null;
+  return { state, previous: null, loop: next === null, next };
 }
 
 function createWindow() {
@@ -1901,6 +1924,9 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
     win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
+    // The renderer has only just subscribed; catch it up on anything it
+    // missed while the page was loading. See currentStateChange().
+    pushStateChange(currentStateChange());
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1942,6 +1968,7 @@ async function startServer() {
     port: config.port,
     token: config.token,
     onEvent: (event) => pushStateChange(machine.handleEvent(event, Date.now())),
+    onServerError: (err) => console.error('[buddy] server error:', err.message),
   });
 
   try {
@@ -1972,9 +1999,19 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => app.quit());
 
-app.on('before-quit', async () => {
+// Electron does not await an async 'before-quit' listener — it tears the
+// process down regardless, so `await server.close()` inside one is decorative.
+// Block the quit explicitly, finish cleanup, then quit again for real.
+app.on('before-quit', (event) => {
+  if (cleaningUp) return;
+  cleaningUp = true;
+
+  event.preventDefault();
   clearInterval(tickTimer);
-  if (server) await server.close();
+
+  Promise.resolve(server ? server.close() : undefined)
+    .catch(() => {})
+    .finally(() => app.quit());
 });
 ```
 

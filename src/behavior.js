@@ -21,10 +21,7 @@ function defaultBehaviorFor(config, event) {
 
   const sound =
     entry && typeof entry.sound === 'string' && isSafeRelativePath(entry.sound) ? entry.sound : null;
-  const scalePulse =
-    entry && Number.isFinite(entry.scalePulse) && entry.scalePulse >= MIN_PULSE && entry.scalePulse <= MAX_PULSE
-      ? entry.scalePulse
-      : 1;
+  const scalePulse = entry && isValidPulse(entry.scalePulse) ? entry.scalePulse : 1;
 
   return { sound, scalePulse };
 }

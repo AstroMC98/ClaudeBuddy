@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { defaultBehaviorFor, sanitizeRulesResult } = require('../src/behavior.js');
+const { defaultBehaviorFor, sanitizeRulesResult, isSafeSoundPath } = require('../src/behavior.js');
 
 const config = {
   states: {
@@ -96,4 +96,20 @@ test('missing fields in an object result inherit the default field', () => {
   const def = { sound: 'sounds/a.mp3', scalePulse: 1.4 };
   assert.deepEqual(sanitizeRulesResult({}, def), def);
   assert.deepEqual(sanitizeRulesResult({ scalePulse: 2 }, def), { sound: 'sounds/a.mp3', scalePulse: 2 });
+});
+
+test('isSafeSoundPath accepts null and safe paths, rejects traversal', () => {
+  assert.equal(isSafeSoundPath(null), true, 'null means silence and is safe');
+  assert.equal(isSafeSoundPath('sounds/a.mp3'), true);
+  assert.equal(isSafeSoundPath('a/b/c.wav'), true);
+  assert.equal(isSafeSoundPath('../x'), false);
+  assert.equal(isSafeSoundPath('/etc/passwd'), false);
+  assert.equal(isSafeSoundPath('a\\b'), false);
+  assert.equal(isSafeSoundPath(''), false);
+});
+
+test('rejects a pulse just outside the range', () => {
+  const def = { sound: null, scalePulse: 1 };
+  assert.equal(sanitizeRulesResult({ scalePulse: 4.01 }, def).scalePulse, 1);
+  assert.equal(sanitizeRulesResult({ scalePulse: 0.09 }, def).scalePulse, 1);
 });

@@ -142,6 +142,47 @@ test('does not mutate DEFAULTS across calls', () => {
   loadConfig(file);
   assert.equal(DEFAULTS.port, 4747);
 });
+
+test('drops unknown keys so the shape is exactly Config', () => {
+  const file = tempConfig(JSON.stringify({ port: 5000, nonsense: 'x' }));
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, 5000);
+  assert.deepEqual(Object.keys(cfg).sort(), Object.keys(DEFAULTS).sort());
+});
+
+test('falls back to the default for a wrong-typed value', () => {
+  const file = tempConfig(
+    JSON.stringify({
+      port: '5000',
+      idleTimeoutMinutes: 'soon',
+      alwaysOnTop: 'yes',
+      scale: null,
+      token: 42,
+    }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+  assert.equal(cfg.alwaysOnTop, DEFAULTS.alwaysOnTop);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.token, DEFAULTS.token);
+});
+
+test('rejects out-of-range and nonsensical numbers', () => {
+  const file = tempConfig(
+    JSON.stringify({ port: 99999, scale: 0, width: -10, idleTimeoutMinutes: 0 }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.width, DEFAULTS.width);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+});
+
+test('accepts a valid token string and an explicit null', () => {
+  assert.equal(loadConfig(tempConfig('{"token":"s3cret"}')).token, 's3cret');
+  assert.equal(loadConfig(tempConfig('{"token":null}')).token, null);
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -170,12 +211,33 @@ const DEFAULTS = Object.freeze({
   height: 320,
 });
 
+/**
+ * A type guard per key. A user value is accepted only if it satisfies its
+ * guard; anything else falls back to the default.
+ *
+ * This matters because consumers do arithmetic on these values. A string
+ * `idleTimeoutMinutes` would become NaN downstream and the buddy would simply
+ * never fall asleep — a silent failure with no error to trace. Validating once
+ * here means every later module can trust the Config contract.
+ */
+const VALIDATORS = Object.freeze({
+  port: (v) => Number.isInteger(v) && v >= 0 && v <= 65535,
+  token: (v) => v === null || (typeof v === 'string' && v.length > 0),
+  idleTimeoutMinutes: (v) => Number.isFinite(v) && v > 0,
+  scale: (v) => Number.isFinite(v) && v > 0,
+  alwaysOnTop: (v) => typeof v === 'boolean',
+  width: (v) => Number.isInteger(v) && v > 0,
+  height: (v) => Number.isInteger(v) && v > 0,
+});
+
 /** Path to the user's config file at the project root. */
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 
 /**
- * Load configuration, merging the user's file over the defaults.
+ * Load configuration, validating the user's file against the defaults.
  * Never throws: any missing, unreadable, or malformed file yields the defaults.
+ * Unknown keys are dropped and wrong-typed values fall back to their default,
+ * so the returned object always has exactly the Config shape.
  *
  * @param {string} [filePath]
  * @returns {typeof DEFAULTS}
@@ -190,7 +252,13 @@ function loadConfig(filePath = CONFIG_PATH) {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ...DEFAULTS };
   }
-  return { ...DEFAULTS, ...parsed };
+
+  const config = { ...DEFAULTS };
+  for (const key of Object.keys(DEFAULTS)) {
+    if (!Object.hasOwn(parsed, key)) continue;
+    if (VALIDATORS[key](parsed[key])) config[key] = parsed[key];
+  }
+  return config;
 }
 
 module.exports = { loadConfig, DEFAULTS, CONFIG_PATH };
@@ -199,7 +267,7 @@ module.exports = { loadConfig, DEFAULTS, CONFIG_PATH };
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: PASS — 5 tests passing
+Expected: PASS — 9 tests passing
 
 - [ ] **Step 6: Create `config.example.json`**
 
@@ -917,7 +985,7 @@ Expected: PASS — 15 tests passing
 - [ ] **Step 5: Run the whole suite**
 
 Run: `npm test`
-Expected: PASS — 38 tests passing (5 config + 18 state machine + 15 server)
+Expected: PASS — 42 tests passing (9 config + 18 state machine + 15 server)
 
 - [ ] **Step 6: Commit**
 
@@ -2197,7 +2265,7 @@ Expected: PASS — 9 tests passing
 - [ ] **Step 5: Run the full suite**
 
 Run: `npm test`
-Expected: PASS — 54 tests passing (5 config + 18 state machine + 15 server + 7 notify + 9 install-hooks)
+Expected: PASS — 58 tests passing (9 config + 18 state machine + 15 server + 7 notify + 9 install-hooks)
 
 - [ ] **Step 6: Preview the hook installation**
 
@@ -2227,7 +2295,7 @@ git commit -m "feat: add idempotent hook installer for ~/.claude/settings.json"
 
 ## Phase 1 Definition of Done
 
-- [ ] `npm test` passes — 54 tests
+- [ ] `npm test` passes — 58 tests
 - [ ] `npm start` shows a transparent, always-on-top, draggable blob
 - [ ] Posting each of the six event types visibly changes the animation
 - [ ] One-shot states (`done`, `subagent`, `error`) settle back automatically

@@ -2800,3 +2800,18 @@ git commit -m "feat: add per-state sound playback and per-state renderer selecti
 - **Click interactions** and **speech bubbles** (spec §13). The `/event` payload already carries `message`, so the door is open.
 - **`clickThrough`** (spec §6.3) — transparent pixels currently still capture clicks across the whole window.
 - **More Mochi sheets** — `idle`, `done`, `needsInput` and the rest, so the theme stops mixing a beagle with a blob.
+
+---
+
+## Post-implementation amendments
+
+Changes made during execution that this document's inline code predates. The
+committed source is authoritative.
+
+| Area | Amendment | Why |
+|---|---|---|
+| `src/renderer/index.html` | CSP keeps `style-src 'self'` — no `'unsafe-inline'` | CSP does not govern CSSOM writes like `el.style.x = y`, only inline `<style>` and `style=` attributes. Verified against the live renderer |
+| `src/png.js` | `readPngHeader` returns `null` for zero width or height | The PNG spec requires both `> 0`. A 0x0 sheet would pass grid validation, since the derived frame is `0/cols = 0` and the check becomes `0 === 0` |
+| `src/theme.js` | Strip frame height derived per-field from the sheet | Taking a declared `frame` wholesale left `height` undefined whenever the author wrote only a width — and it validated with zero errors |
+| `src/theme.js` | A frame declared **on a state** is validated against its grid | It was previously computed and silently discarded, so a wrong declared size produced no error |
+| `src/theme.js` | `ownFrame` distinguished from inherited `declaredFrame` | A top-level `frame` serves a theme's strip states; a grid state must not be failed merely for inheriting it |

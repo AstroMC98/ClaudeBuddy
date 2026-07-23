@@ -109,6 +109,26 @@ test('collectSheetInfo refuses a sheet path that escapes the theme directory', (
   assert.equal(info['../../etc/passwd'], null);
 });
 
+test('reports a filename whose case differs from the manifest', () => {
+  const dir = makeThemeDir(MOCHI_MANIFEST, {});
+  // theme.json asks for "sleeping.png"; write it with a capital S instead.
+  writeFakePng(path.join(dir, 'Sleeping.png'), 1920, 1080);
+
+  const { errors } = validateThemeDir(dir);
+  assert.ok(
+    errors.some((e) => /case-sensitive/i.test(e)),
+    `expected a case-mismatch error, got: ${JSON.stringify(errors)}`,
+  );
+});
+
+test('does not flag a filename that matches the manifest exactly', () => {
+  const dir = makeThemeDir(MOCHI_MANIFEST, {
+    'sleeping.png': { width: 1920, height: 1080 },
+  });
+  const { errors } = validateThemeDir(dir);
+  assert.deepEqual(errors, [], 'an exactly-matching filename must not be flagged');
+});
+
 test('the committed _template theme validates against its own documentation', () => {
   // The template ships no art, so every sheet is reported missing. What must
   // hold is that the manifest itself parses and names only real states.

@@ -132,25 +132,38 @@ person who clones it on a Mac.
 
 ## Worked example: Mochi
 
-The repo includes a master sheet at `assets/sprites/mochi/Sleeping.png` —
-1920x1080, an 8x4 grid of 240x270 frames, holding four distinct sleeping poses
-of eight frames each.
+The repo includes master sheets at `assets/sprites/mochi/`. They all use
+240x270 frames sharing a baseline of y=250 within each cell, so the character
+never jumps vertically when states swap — which is why none of them needs an
+`offset`.
 
-Build the runtime theme from it:
+| Sheet | Layout | State | Animation |
+|---|---|---|---|
+| `idle.png` | 8x1 | `idle` | Sitting; ear flick, then a blink |
+| `working.png` | 8x1 | `working` | Digging, dirt flying |
+| `error.png` | 8x1 | `error` | Ears flatten, head lowers, curls up |
+| `sleeping.png` | 8x4 | `sleeping` | 4 sleep-pose variants, chosen at random |
+
+Build the runtime theme from them:
 
 ```bash
 mkdir -p themes/mochi
-cp assets/sprites/mochi/Sleeping.png themes/mochi/sleeping.png   # note the lowercase
-cp assets/sprites/mochi/theme.json themes/mochi/theme.json
+cp assets/sprites/mochi/idle.png     themes/mochi/idle.png
+cp assets/sprites/mochi/working.png  themes/mochi/working.png
+cp assets/sprites/mochi/error.png    themes/mochi/error.png
+cp assets/sprites/mochi/sleeping.png themes/mochi/sleeping.png
+cp assets/sprites/mochi/theme.json   themes/mochi/theme.json
 npm run validate-theme -- themes/mochi
 ```
 
 Then set `"theme": "mochi"` in `config.json`.
 
-Mochi currently supplies only `sleeping`, so the pet renders as the procedural
-blob in every other state and turns into a sleeping beagle when it dozes off.
-Add more sheets to `assets/sprites/mochi/` and extend `theme.json` to cover more
-states.
+Mochi defines four of the eight states. The other four — `thinking`, `done`,
+`needsInput` and `subagent` — fall back to `idle`, so the pet stays a beagle at
+all times rather than switching to the procedural blob mid-session.
+
+Note the lowercase filenames. `theme.json` references `sleeping.png`, and a
+case-sensitive filesystem will not accept `Sleeping.png` in its place.
 
 ## Licensing
 

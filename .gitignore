@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# User-supplied themes are NEVER committed.
+# The repo ships no character artwork — see docs/superpowers/specs for rationale.
+# Exception: our own placeholder template theme.
+themes/*
+!themes/_template/
+
+# Local user configuration (ship config.example.json instead)
+config.json
+rules.js
+
+# Runtime state (window position, etc.)
+state.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build output (we run from source; no packaged binaries)
+dist/
+out/
+build/

@@ -62,10 +62,31 @@ test('is idempotent', () => {
 });
 
 test('replaces a stale buddy hook rather than duplicating it', () => {
-  const settings = mergeHooks({}, buildHookEntries('/old/path/notify.js'));
+  // A real prior install always lives at <project>/hooks/notify.js, which is
+  // why SHIM_MARKER includes the directory component.
+  const settings = mergeHooks({}, buildHookEntries('/old/project/hooks/notify.js'));
   const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
   assert.equal(merged.hooks.Stop.length, 1, 'old buddy entry should be replaced');
   assert.ok(merged.hooks.Stop[0].hooks[0].command.includes(NOTIFY));
+});
+
+test('never clobbers an unrelated user hook that mentions notify.js', () => {
+  const settings = {
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'node /home/me/scripts/notify.js slack' }] },
+        { hooks: [{ type: 'command', command: 'echo unrelated' }] },
+      ],
+    },
+  };
+  const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
+  const commands = merged.hooks.Stop.map((g) => g.hooks[0].command);
+  assert.ok(
+    commands.some((c) => c.includes('/home/me/scripts/notify.js')),
+    "the user's own notify.js hook must survive",
+  );
+  assert.ok(commands.some((c) => c === 'echo unrelated'));
+  assert.equal(merged.hooks.Stop.length, 3);
 });
 
 test('does not mutate the input settings object', () => {

@@ -20,8 +20,15 @@ const HOOK_EVENTS = Object.freeze({
   Notification: 'needsInput',
 });
 
-/** Marker used to recognise our own entries when re-running. */
-const SHIM_MARKER = 'notify.js';
+/**
+ * Marker used to recognise our own entries when re-running.
+ *
+ * The `hooks/` directory component is load-bearing: this string decides which
+ * existing entries get REPLACED. Matching on `notify.js` alone would silently
+ * delete a user's own unrelated hook that happens to run some other
+ * `notify.js` — data loss in the user's live Claude Code config.
+ */
+const SHIM_MARKER = 'hooks/notify.js';
 
 function buildHookEntries(notifyPath) {
   const entries = {};

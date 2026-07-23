@@ -51,6 +51,7 @@ function createEventServer(options) {
   const token = options.token ?? null;
   const onEvent = options.onEvent;
   const now = options.now ?? Date.now;
+  const onServerError = options.onServerError ?? (() => {});
 
   function send(res, status, body) {
     res.writeHead(status, {
@@ -117,10 +118,14 @@ function createEventServer(options) {
   return {
     listen() {
       return new Promise((resolve, reject) => {
-        const onError = (err) => reject(err);
-        server.once('error', onError);
+        const onListenError = (err) => reject(err);
+        server.once('error', onListenError);
         server.listen(port, host, () => {
-          server.removeListener('error', onError);
+          server.removeListener('error', onListenError);
+          // From here on a socket error would be an unhandled 'error' event on
+          // an EventEmitter, which throws and takes the whole app down. Keep a
+          // permanent listener so a late failure is reported, not fatal.
+          server.on('error', (err) => onServerError(err));
           resolve(server.address());
         });
       });

@@ -2178,10 +2178,31 @@ test('is idempotent', () => {
 });
 
 test('replaces a stale buddy hook rather than duplicating it', () => {
-  const settings = mergeHooks({}, buildHookEntries('/old/path/notify.js'));
+  // A real prior install always lives at <project>/hooks/notify.js, which is
+  // why SHIM_MARKER includes the directory component.
+  const settings = mergeHooks({}, buildHookEntries('/old/project/hooks/notify.js'));
   const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
   assert.equal(merged.hooks.Stop.length, 1, 'old buddy entry should be replaced');
   assert.ok(merged.hooks.Stop[0].hooks[0].command.includes(NOTIFY));
+});
+
+test('never clobbers an unrelated user hook that mentions notify.js', () => {
+  const settings = {
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'node /home/me/scripts/notify.js slack' }] },
+        { hooks: [{ type: 'command', command: 'echo unrelated' }] },
+      ],
+    },
+  };
+  const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
+  const commands = merged.hooks.Stop.map((g) => g.hooks[0].command);
+  assert.ok(
+    commands.some((c) => c.includes('/home/me/scripts/notify.js')),
+    "the user's own notify.js hook must survive",
+  );
+  assert.ok(commands.some((c) => c === 'echo unrelated'));
+  assert.equal(merged.hooks.Stop.length, 3);
 });
 
 test('does not mutate the input settings object', () => {
@@ -2224,7 +2245,14 @@ const HOOK_EVENTS = Object.freeze({
   Notification: 'needsInput',
 });
 
-/** Marker used to recognise our own entries when re-running. */
+/**
+ * Marker used to recognise our own entries when re-running.
+ *
+ * The `hooks/` directory component is load-bearing: this string decides which
+ * existing entries get REPLACED. Matching on `notify.js` alone would silently
+ * delete a user's own unrelated hook that happens to run some other
+ * `notify.js` — data loss in the user's live Claude Code config.
+ */
 const SHIM_MARKER = 'hooks/notify.js';
 
 function buildHookEntries(notifyPath) {
@@ -2326,7 +2354,7 @@ Expected: PASS — 9 tests passing
 - [ ] **Step 5: Run the full suite**
 
 Run: `npm test`
-Expected: PASS — 58 tests passing (9 config + 18 state machine + 15 server + 7 notify + 9 install-hooks)
+Expected: PASS — 61 tests passing (9 config + 18 state machine + 16 server + 7 notify + 11 install-hooks)
 
 - [ ] **Step 6: Preview the hook installation**
 
@@ -2356,7 +2384,7 @@ git commit -m "feat: add idempotent hook installer for ~/.claude/settings.json"
 
 ## Phase 1 Definition of Done
 
-- [ ] `npm test` passes — 58 tests
+- [ ] `npm test` passes — 61 tests
 - [ ] `npm start` shows a transparent, always-on-top, draggable blob
 - [ ] Posting each of the six event types visibly changes the animation
 - [ ] One-shot states (`done`, `subagent`, `error`) settle back automatically

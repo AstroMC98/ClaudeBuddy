@@ -15,8 +15,8 @@ themes/*
 !themes/_template/
 
 # Local user configuration (ship config.example.json instead)
-config.json
-rules.js
+/config.json
+/rules.js
 
 # Runtime state (window position, etc.)
 state.json

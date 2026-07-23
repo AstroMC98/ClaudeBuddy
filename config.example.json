@@ -1,0 +1,9 @@
+{
+  "port": 4747,
+  "token": null,
+  "idleTimeoutMinutes": 10,
+  "scale": 1.0,
+  "alwaysOnTop": true,
+  "width": 320,
+  "height": 320
+}

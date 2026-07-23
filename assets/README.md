@@ -37,6 +37,21 @@ contract.
 
 ## Inventory
 
-| Character | Sheet | Size | Layout | Frame | Contents |
-|---|---|---|---|---|---|
-| Mochi (beagle) | `Sleeping.png` | 1920×1080 | 8×4 grid | 240×270 | 4 sleep-pose variants, 8 frames each |
+All Mochi sheets use **240×270 frames** and share a **baseline of y=250** within
+each cell, so the character does not jump vertically when states swap.
+
+| Sheet | Size | Layout | State | Contents |
+|---|---|---|---|---|
+| `idle.png` | 1920×270 | 8×1 | `idle` | Sitting; ear flick, then a blink |
+| `working.png` | 1920×270 | 8×1 | `working` | Digging, dirt flying |
+| `error.png` | 1920×270 | 8×1 | `error` | Ears flatten → head lowers → curls up |
+| `sleeping.png` | 1920×1080 | 8×4 | `sleeping` | 4 sleep-pose variants, 8 frames each |
+| `drowsy.png` | 1920×270 | 8×1 | *(unassigned)* | Sitting, ears droop, eyes close |
+
+### `_raw/`
+
+The original generated SVGs, kept for provenance. They wrap raster data behind
+`feColorMatrix` luminance masks, so the PNGs above were produced by rendering
+them through a browser engine and re-compositing each detected sprite band onto
+a clean grid at the shared baseline. Extracting the embedded PNGs directly would
+yield opaque images with no transparency.

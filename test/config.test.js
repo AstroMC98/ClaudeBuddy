@@ -44,3 +44,44 @@ test('does not mutate DEFAULTS across calls', () => {
   loadConfig(file);
   assert.equal(DEFAULTS.port, 4747);
 });
+
+test('drops unknown keys so the shape is exactly Config', () => {
+  const file = tempConfig(JSON.stringify({ port: 5000, nonsense: 'x' }));
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, 5000);
+  assert.deepEqual(Object.keys(cfg).sort(), Object.keys(DEFAULTS).sort());
+});
+
+test('falls back to the default for a wrong-typed value', () => {
+  const file = tempConfig(
+    JSON.stringify({
+      port: '5000',
+      idleTimeoutMinutes: 'soon',
+      alwaysOnTop: 'yes',
+      scale: null,
+      token: 42,
+    }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+  assert.equal(cfg.alwaysOnTop, DEFAULTS.alwaysOnTop);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.token, DEFAULTS.token);
+});
+
+test('rejects out-of-range and nonsensical numbers', () => {
+  const file = tempConfig(
+    JSON.stringify({ port: 99999, scale: 0, width: -10, idleTimeoutMinutes: 0 }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.width, DEFAULTS.width);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+});
+
+test('accepts a valid token string and an explicit null', () => {
+  assert.equal(loadConfig(tempConfig('{"token":"s3cret"}')).token, 's3cret');
+  assert.equal(loadConfig(tempConfig('{"token":null}')).token, null);
+});

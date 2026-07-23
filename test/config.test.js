@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { loadConfig, DEFAULTS } = require('../src/config.js');
+const { loadConfig, DEFAULTS, isSafeRelativePath } = require('../src/config.js');
 
 function tempConfig(contents) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-cfg-'));
@@ -97,4 +97,84 @@ test('rejects absurd window dimensions', () => {
   assert.equal(cfg.width, DEFAULTS.width);
   assert.equal(cfg.height, DEFAULTS.height);
   assert.equal(cfg.scale, DEFAULTS.scale);
+});
+
+test('defaults include the new theme, sound and states keys', () => {
+  const cfg = loadConfig(path.join(os.tmpdir(), 'buddy-absent-77123.json'));
+  assert.equal(cfg.theme, 'procedural');
+  assert.deepEqual(cfg.sound, { enabled: true, volume: 0.5 });
+  assert.deepEqual(cfg.states, {});
+});
+
+test('accepts a valid theme name', () => {
+  const file = tempConfig(JSON.stringify({ theme: 'mochi' }));
+  assert.equal(loadConfig(file).theme, 'mochi');
+});
+
+test('rejects a theme name that could escape the themes directory', () => {
+  for (const evil of ['../secrets', 'a/b', 'a\\b', '..', '/etc/passwd', 'C:\\Windows', '']) {
+    const file = tempConfig(JSON.stringify({ theme: evil }));
+    assert.equal(loadConfig(file).theme, 'procedural', `should reject ${JSON.stringify(evil)}`);
+  }
+});
+
+test('merges the sound block key by key', () => {
+  const file = tempConfig(JSON.stringify({ sound: { volume: 0.25 } }));
+  assert.deepEqual(loadConfig(file).sound, { enabled: true, volume: 0.25 });
+});
+
+test('rejects a wrong-typed or out-of-range sound value', () => {
+  const file = tempConfig(JSON.stringify({ sound: { enabled: 'yes', volume: 9 } }));
+  assert.deepEqual(loadConfig(file).sound, { enabled: true, volume: 0.5 });
+});
+
+test('rejects a non-object sound block', () => {
+  const file = tempConfig(JSON.stringify({ sound: 'loud' }));
+  assert.deepEqual(loadConfig(file).sound, { enabled: true, volume: 0.5 });
+});
+
+test('keeps per-state settings for real states only', () => {
+  const file = tempConfig(
+    JSON.stringify({
+      states: {
+        done: { sound: 'sounds/tada.mp3', scalePulse: 1.4 },
+        notAState: { sound: 'sounds/x.mp3' },
+      },
+    }),
+  );
+  const cfg = loadConfig(file);
+  assert.deepEqual(cfg.states.done, { sound: 'sounds/tada.mp3', scalePulse: 1.4 });
+  assert.equal(Object.hasOwn(cfg.states, 'notAState'), false);
+});
+
+test('rejects a sound path that could escape the project', () => {
+  const file = tempConfig(
+    JSON.stringify({
+      states: {
+        done: { sound: '../../../../etc/passwd' },
+        error: { sound: '/etc/shadow' },
+        thinking: { sound: 'sounds/ok.mp3' },
+      },
+    }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.states.done?.sound, undefined);
+  assert.equal(cfg.states.error?.sound, undefined);
+  assert.equal(cfg.states.thinking.sound, 'sounds/ok.mp3');
+});
+
+test('rejects an out-of-range scalePulse', () => {
+  const file = tempConfig(JSON.stringify({ states: { done: { scalePulse: 99 } } }));
+  assert.equal(loadConfig(file).states.done?.scalePulse, undefined);
+});
+
+test('isSafeRelativePath rejects traversal and absolute paths', () => {
+  assert.equal(isSafeRelativePath('sounds/tada.mp3'), true);
+  assert.equal(isSafeRelativePath('a/b/c.wav'), true);
+  assert.equal(isSafeRelativePath('../x'), false);
+  assert.equal(isSafeRelativePath('a/../../b'), false);
+  assert.equal(isSafeRelativePath('/abs'), false);
+  assert.equal(isSafeRelativePath('C:\\abs'), false);
+  assert.equal(isSafeRelativePath('a\\b'), false);
+  assert.equal(isSafeRelativePath(''), false);
 });

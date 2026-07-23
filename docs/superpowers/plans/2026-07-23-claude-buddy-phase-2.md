@@ -2063,13 +2063,19 @@ In `src/renderer/index.html`, change the CSP meta tag to:
 ```html
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src data:;"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src data:;"
     />
 ```
 
-Two changes, both deliberate:
-- `media-src data:` so `new Audio(dataUri)` is permitted. `data:` is not a network origin, so the "zero outbound connections" guarantee is untouched.
-- `'unsafe-inline'` in `style-src` because the sprite renderer sets `style.backgroundPosition` on every frame. Inline *style attributes* require this; it does not permit inline `<script>`, which `script-src 'self'` still forbids.
+**Exactly one change:** `media-src data:`, so `new Audio(dataUri)` is permitted.
+`data:` is not a network origin, so the "zero outbound connections" guarantee is
+untouched.
+
+`style-src` stays `'self'` — do **not** add `'unsafe-inline'`. CSP governs
+inline `<style>` blocks and `style=""` attributes in markup; it does not govern
+CSSOM writes like `el.style.backgroundPosition = ...`, which is all the sprite
+renderer does. Verified empirically against this exact CSP: the property
+applied, a `data:` background image loaded, and zero violations were reported.
 
 - [ ] **Step 7: Wire asset loading into `src/main.js`**
 

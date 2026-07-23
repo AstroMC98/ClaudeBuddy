@@ -104,11 +104,15 @@ they need no offsets.
 **Any state you omit falls back to the procedural blob.** A theme with one
 state is valid — start with `sleeping` or `idle` and grow it.
 
-One-shot states should set `"loop": false` and a `"next"`:
+One-shot states should set `"loop": false`:
 
 ```jsonc
-"done": { "sheet": "done.png", "frames": 6, "fps": 12, "loop": false, "next": "idle" }
+"done": { "sheet": "done.png", "frames": 6, "fps": 12, "loop": false }
 ```
+
+Which state follows a one-shot is decided by Claude Buddy itself, not by the
+theme — `done` and `error` return to `idle`, and `subagent` returns to
+`thinking`. A theme controls how a state *looks*, never what happens next.
 
 ## Image requirements
 

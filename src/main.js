@@ -67,7 +67,9 @@ function createWindow() {
   // over #stage's transform mid-animation.
   win.webContents.on('did-finish-load', () => {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
-    win.webContents.insertCSS(`#stage { --base-scale: ${scale}; transform: scale(var(--base-scale)); }`);
+    win.webContents.insertCSS(
+      `#stage { --base-scale: ${scale}; transform: scale(calc(var(--base-scale) * var(--theme-scale, 1))); }`,
+    );
 
     // Assets first: the renderer must know which theme it has before it is
     // told which state to show, or the first state would render with the

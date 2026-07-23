@@ -266,7 +266,6 @@ function validateTheme(manifest, sheetInfo) {
       totalFrames: total,
       fps: Number.isFinite(entry.fps) && entry.fps > 0 ? entry.fps : DEFAULT_FPS,
       loop: entry.loop !== false,
-      next: typeof entry.next === 'string' ? entry.next : null,
       range,
       variants: variants ?? [range],
       variantPick: entry.variantPick === 'sequential' ? 'sequential' : 'random',

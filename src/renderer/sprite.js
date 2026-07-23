@@ -80,9 +80,11 @@ function createSpriteRenderer(theme, sheets) {
     }, intervalMs);
 
     if (change.next) {
+      // Capped so a theme with a pathologically low fps (e.g. 0.01) cannot
+      // park the state machine in a one-shot state for minutes on end.
       const ackMs = isFallback
         ? FALLBACK_ONE_SHOT_MS
-        : Math.round((frames.length / spec.fps) * 1000);
+        : Math.min(5000, Math.round((frames.length / spec.fps) * 1000));
       settleTimer = setTimeout(() => window.buddy.animationEnded(), ackMs);
     }
   }

@@ -112,11 +112,28 @@ test('tick puts an idle buddy to sleep once the timeout elapses', () => {
   assert.equal(change.loop, true);
 });
 
-test('tick never sleeps a buddy that is not idle', () => {
+test('falls asleep from a looping state that has no successor', () => {
+  for (const type of ['thinking', 'working', 'needsInput']) {
+    const m = createStateMachine({ idleTimeoutMs: 1000, now: 0 });
+    m.handleEvent({ type }, 10);
+    const change = m.tick(1100);
+    assert.equal(change && change.state, 'sleeping', `${type} should eventually sleep`);
+    assert.equal(change.previous, type);
+  }
+});
+
+test('falls asleep from a one-shot whose ack never arrived', () => {
   const m = createStateMachine({ idleTimeoutMs: 1000, now: 0 });
-  m.handleEvent({ type: 'thinking' }, 10);
-  assert.equal(m.tick(100000), null);
-  assert.equal(m.getState(), 'thinking');
+  m.handleEvent({ type: 'done' }, 10);
+  // completeOneShot() is never called -- the renderer's ack was lost.
+  assert.equal(m.tick(1100).state, 'sleeping');
+});
+
+test('an event still refreshes the sleep timer from a non-idle state', () => {
+  const m = createStateMachine({ idleTimeoutMs: 1000, now: 0 });
+  m.handleEvent({ type: 'thinking' }, 500);
+  assert.equal(m.tick(1200), null, 'only 700ms since the event');
+  assert.equal(m.tick(1600).state, 'sleeping');
 });
 
 test('tick does not re-fire once already sleeping', () => {

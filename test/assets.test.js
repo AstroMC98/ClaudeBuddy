@@ -84,7 +84,10 @@ test('the procedural theme loads no theme and no sheets', () => {
 test('loads a theme and inlines its sheet as a data URI', () => {
   const root = makeProject({ theme: MOCHI });
   const assets = loadAssets({ ...DEFAULTS, theme: 'mochi', states: {} }, root);
-  assert.deepEqual(assets.problems, []);
+  // MOCHI defines only "sleeping", so this theme is a warnings-carrying
+  // fixture: it surfaces the advisory "no idle state" warning as a problem,
+  // it just does not fail to load over it.
+  assert.deepEqual(assets.problems, ['theme "mochi": no "idle" state — the procedural blob will be used for every state this theme omits']);
   assert.equal(assets.theme.name, 'Mochi');
   assert.equal(assets.theme.scale, 0.6);
   assert.match(assets.sheets['sleeping.png'], /^data:image\/png;base64,/);

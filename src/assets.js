@@ -43,16 +43,21 @@ function loadTheme(config, projectRoot, problems) {
     return { theme: null, sheets: {} };
   }
 
-  // Note: theme *warnings* (e.g. "no idle state") are advisory, not load
-  // failures — validate-theme.js itself treats a theme with only warnings as
-  // valid — so they are deliberately NOT folded into `problems`, which is
-  // reserved for things that could not be loaded.
-  const { errors, theme } = validateThemeDir(themeDir);
+  const { errors, warnings, theme } = validateThemeDir(themeDir);
 
   if (errors.length > 0 || theme === null) {
     problems.push(`theme "${config.theme}" is invalid: ${errors.join('; ')}`);
     return { theme: null, sheets: {} };
   }
+
+  // Theme *warnings* (e.g. "no idle state") are advisory, not load failures —
+  // validate-theme.js itself treats a theme with only warnings as valid — but
+  // advisory is not the same as invisible: prefixed so it reads as advice
+  // rather than an error, each warning still needs to reach the user (tray /
+  // console), same as any other problem surfaced here. Pushed only after the
+  // errors early-return above, so a theme that fails outright does not also
+  // emit warnings for states that were never resolved.
+  for (const w of warnings) problems.push(`theme "${config.theme}": ${w}`);
 
   // Dedupe: several states may share one sheet, and these are large.
   const sheets = {};
@@ -110,12 +115,21 @@ function loadAssets(config, projectRoot) {
   const { theme, sheets } = loadTheme(config, projectRoot, problems);
   const sounds = loadSounds(config, projectRoot, problems);
 
+  // The renderer gets sounds as data: URIs and has no use for filesystem
+  // paths, so do not hand a sandboxed process information it cannot need.
+  const states = {};
+  for (const [state, settings] of Object.entries(config.states ?? {})) {
+    if (settings && Number.isFinite(settings.scalePulse)) {
+      states[state] = { scalePulse: settings.scalePulse };
+    }
+  }
+
   return {
     theme,
     sheets,
     sounds,
     sound: { ...config.sound },
-    states: { ...config.states },
+    states,
     problems,
   };
 }

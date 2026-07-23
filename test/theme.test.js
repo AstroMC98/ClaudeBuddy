@@ -162,7 +162,10 @@ test('defaults fps and loop when omitted', () => {
   assert.equal(theme.states.idle.loop, true);
 });
 
-test('carries next through for one-shot states', () => {
+test('a one-shot state resolves loop:false and carries no "next" field', () => {
+  // Which state follows a one-shot is decided by the state machine
+  // (src/state-machine.js's ONE_SHOT map), never by the theme manifest, so a
+  // manifest-supplied "next" must not survive resolution even when present.
   const manifest = {
     name: 'OneShot',
     states: {
@@ -173,7 +176,7 @@ test('carries next through for one-shot states', () => {
     'done.png': { width: 128, height: 64, hasAlpha: true },
   });
   assert.equal(theme.states.done.loop, false);
-  assert.equal(theme.states.done.next, 'idle');
+  assert.equal(theme.states.done.next, undefined);
 });
 
 test('defaults offset to zero and accepts an explicit one', () => {

@@ -52,6 +52,12 @@
   window.buddy.onAssets((assets) => {
     stateConfig = assets.states || {};
 
+    // The theme's own scale composes with the user's config.scale (--base-scale)
+    // and the per-state pulse. A 240x270 frame dominates a 320x320 window, which
+    // is exactly why a theme is allowed to ask to be drawn smaller.
+    const themeScale = assets.theme && Number.isFinite(assets.theme.scale) ? assets.theme.scale : 1;
+    stage.style.setProperty('--theme-scale', String(themeScale));
+
     if (assets.theme && assets.sheets) {
       sprite = window.createSpriteRenderer(assets.theme, assets.sheets);
       sprite.mount(stage);

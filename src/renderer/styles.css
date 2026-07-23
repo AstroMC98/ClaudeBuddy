@@ -282,12 +282,12 @@ body {
 
 @keyframes stagePulse {
   0% {
-    transform: scale(var(--base-scale, 1));
+    transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1)));
   }
   45% {
-    transform: scale(calc(var(--base-scale, 1) * var(--pulse, 1.2)));
+    transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1) * var(--pulse, 1.2)));
   }
   100% {
-    transform: scale(var(--base-scale, 1));
+    transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1)));
   }
 }

@@ -1,0 +1,18 @@
+{
+  "name": "claude-buddy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A customizable desktop pet that reacts to Claude Code activity",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.js",
+    "install-hooks": "node tools/install-hooks.js"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0"
+  }
+}

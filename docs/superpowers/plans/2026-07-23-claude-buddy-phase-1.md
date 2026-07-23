@@ -17,7 +17,7 @@
 Every task's requirements implicitly include this section.
 
 - **Electron is the ONLY entry in `package.json` dependencies or devDependencies.** No Express, no test framework, no animation library, no HTTP client. If a task seems to need a package, it does not — use the Node standard library.
-- **Tests run via the built-in runner:** `npm test` → `node --test test/`. Never introduce Jest, Mocha, Vitest, or Chai.
+- **Tests run via the built-in runner:** `npm test` → `node --test test/*.js`. Never introduce Jest, Mocha, Vitest, or Chai. (The glob is required: on Node 22+, a bare directory argument is resolved as a module path and fails with `MODULE_NOT_FOUND`. Node expands the glob itself, so this works regardless of shell.)
 - **Node `>=20`** declared in `package.json` engines. Development machine is Node 24.16.0.
 - **The HTTP server binds to `127.0.0.1` only — never `0.0.0.0`.** This is a tested invariant, not a convention.
 - **Electron hardening is mandatory** on every `BrowserWindow`: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The window loads local files only and declares a strict CSP.
@@ -82,7 +82,7 @@ Every task's requirements implicitly include this section.
   },
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
+    "test": "node --test test/*.js",
     "install-hooks": "node tools/install-hooks.js"
   },
   "devDependencies": {
@@ -142,6 +142,47 @@ test('does not mutate DEFAULTS across calls', () => {
   loadConfig(file);
   assert.equal(DEFAULTS.port, 4747);
 });
+
+test('drops unknown keys so the shape is exactly Config', () => {
+  const file = tempConfig(JSON.stringify({ port: 5000, nonsense: 'x' }));
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, 5000);
+  assert.deepEqual(Object.keys(cfg).sort(), Object.keys(DEFAULTS).sort());
+});
+
+test('falls back to the default for a wrong-typed value', () => {
+  const file = tempConfig(
+    JSON.stringify({
+      port: '5000',
+      idleTimeoutMinutes: 'soon',
+      alwaysOnTop: 'yes',
+      scale: null,
+      token: 42,
+    }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+  assert.equal(cfg.alwaysOnTop, DEFAULTS.alwaysOnTop);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.token, DEFAULTS.token);
+});
+
+test('rejects out-of-range and nonsensical numbers', () => {
+  const file = tempConfig(
+    JSON.stringify({ port: 99999, scale: 0, width: -10, idleTimeoutMinutes: 0 }),
+  );
+  const cfg = loadConfig(file);
+  assert.equal(cfg.port, DEFAULTS.port);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+  assert.equal(cfg.width, DEFAULTS.width);
+  assert.equal(cfg.idleTimeoutMinutes, DEFAULTS.idleTimeoutMinutes);
+});
+
+test('accepts a valid token string and an explicit null', () => {
+  assert.equal(loadConfig(tempConfig('{"token":"s3cret"}')).token, 's3cret');
+  assert.equal(loadConfig(tempConfig('{"token":null}')).token, null);
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -170,12 +211,33 @@ const DEFAULTS = Object.freeze({
   height: 320,
 });
 
+/**
+ * A type guard per key. A user value is accepted only if it satisfies its
+ * guard; anything else falls back to the default.
+ *
+ * This matters because consumers do arithmetic on these values. A string
+ * `idleTimeoutMinutes` would become NaN downstream and the buddy would simply
+ * never fall asleep — a silent failure with no error to trace. Validating once
+ * here means every later module can trust the Config contract.
+ */
+const VALIDATORS = Object.freeze({
+  port: (v) => Number.isInteger(v) && v >= 0 && v <= 65535,
+  token: (v) => v === null || (typeof v === 'string' && v.length > 0),
+  idleTimeoutMinutes: (v) => Number.isFinite(v) && v > 0,
+  scale: (v) => Number.isFinite(v) && v > 0,
+  alwaysOnTop: (v) => typeof v === 'boolean',
+  width: (v) => Number.isInteger(v) && v > 0,
+  height: (v) => Number.isInteger(v) && v > 0,
+});
+
 /** Path to the user's config file at the project root. */
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 
 /**
- * Load configuration, merging the user's file over the defaults.
+ * Load configuration, validating the user's file against the defaults.
  * Never throws: any missing, unreadable, or malformed file yields the defaults.
+ * Unknown keys are dropped and wrong-typed values fall back to their default,
+ * so the returned object always has exactly the Config shape.
  *
  * @param {string} [filePath]
  * @returns {typeof DEFAULTS}
@@ -190,7 +252,13 @@ function loadConfig(filePath = CONFIG_PATH) {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ...DEFAULTS };
   }
-  return { ...DEFAULTS, ...parsed };
+
+  const config = { ...DEFAULTS };
+  for (const key of Object.keys(DEFAULTS)) {
+    if (!Object.hasOwn(parsed, key)) continue;
+    if (VALIDATORS[key](parsed[key])) config[key] = parsed[key];
+  }
+  return config;
 }
 
 module.exports = { loadConfig, DEFAULTS, CONFIG_PATH };
@@ -199,7 +267,7 @@ module.exports = { loadConfig, DEFAULTS, CONFIG_PATH };
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: PASS — 5 tests passing
+Expected: PASS — 9 tests passing
 
 - [ ] **Step 6: Create `config.example.json`**
 
@@ -816,6 +884,7 @@ function createEventServer(options) {
   const token = options.token ?? null;
   const onEvent = options.onEvent;
   const now = options.now ?? Date.now;
+  const onServerError = options.onServerError ?? (() => {});
 
   function send(res, status, body) {
     res.writeHead(status, {
@@ -882,16 +951,26 @@ function createEventServer(options) {
   return {
     listen() {
       return new Promise((resolve, reject) => {
-        const onError = (err) => reject(err);
-        server.once('error', onError);
+        const onListenError = (err) => reject(err);
+        server.once('error', onListenError);
         server.listen(port, host, () => {
-          server.removeListener('error', onError);
+          server.removeListener('error', onListenError);
+          // From here on a socket error would be an unhandled 'error' event on
+          // an EventEmitter, which throws and takes the whole app down. Keep a
+          // permanent listener so a late failure is reported, not fatal.
+          server.on('error', (err) => onServerError(err));
           resolve(server.address());
         });
       });
     },
     close() {
       return new Promise((resolve) => server.close(() => resolve()));
+    },
+    /** Drop live sockets so a keep-alive client cannot stall shutdown. */
+    closeAllConnections() {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
     },
     address() {
       return server.address();
@@ -917,7 +996,7 @@ Expected: PASS — 15 tests passing
 - [ ] **Step 5: Run the whole suite**
 
 Run: `npm test`
-Expected: PASS — 38 tests passing (5 config + 18 state machine + 15 server)
+Expected: PASS — 42 tests passing (9 config + 18 state machine + 15 server)
 
 - [ ] **Step 6: Commit**
 
@@ -1613,6 +1692,13 @@ function createProceduralRenderer() {
     setState(change) {
       if (!el) return;
 
+      // A resync is main catching us up after a page load. If we are already
+      // showing this state we did not miss it, and re-applying would restart a
+      // live one-shot's settle timer and replay its pulse. A genuine repeat
+      // event (no resync flag) still replays, which is what you want when the
+      // same thing happens twice.
+      if (change.resync && change.state === currentState) return;
+
       if (currentState) el.classList.remove(`buddy--${currentState}`);
       currentState = change.state;
       el.classList.add(`buddy--${currentState}`);
@@ -1780,7 +1866,7 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require('electron');
 
 const { loadConfig } = require('./config.js');
-const { createStateMachine } = require('./state-machine.js');
+const { createStateMachine, ONE_SHOT } = require('./state-machine.js');
 const { createEventServer } = require('./server.js');
 
 const config = loadConfig();
@@ -1792,6 +1878,7 @@ let win = null;
 let tray = null;
 let server = null;
 let tickTimer = null;
+let cleaningUp = false;
 
 const machine = createStateMachine({
   idleTimeoutMs: config.idleTimeoutMinutes * 60 * 1000,
@@ -1803,6 +1890,23 @@ function pushStateChange(change) {
   if (!change) return;
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state-change', change);
+}
+
+/**
+ * The machine's current state, shaped as a StateChange, for resyncing the
+ * renderer after a page load.
+ *
+ * `webContents.send` does not queue for a renderer that has not subscribed
+ * yet, so an event arriving during startup is applied to the machine but never
+ * displayed. For a one-shot state that is worse than a dropped frame: the
+ * renderer never reports `animation-ended`, `completeOneShot()` never runs, the
+ * machine stays stuck in `done`, and since `tick()` only sleeps from `idle` the
+ * buddy would never sleep again either. Resyncing on load closes that window.
+ */
+function currentStateChange() {
+  const state = machine.getState();
+  const next = Object.hasOwn(ONE_SHOT, state) ? ONE_SHOT[state] : null;
+  return { state, previous: null, loop: next === null, next };
 }
 
 function createWindow() {
@@ -1833,6 +1937,14 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
     win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
+    // The renderer has only just subscribed; catch it up on anything it
+    // missed while the page was loading. See currentStateChange().
+    //
+    // Flagged as a resync so the renderer can ignore it when it is already
+    // showing this state: an event delivered after preload registered but
+    // before this fires was NOT lost, and replaying it would restart a live
+    // one-shot's settle timer and re-run its pulse.
+    pushStateChange({ ...currentStateChange(), resync: true });
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1874,6 +1986,7 @@ async function startServer() {
     port: config.port,
     token: config.token,
     onEvent: (event) => pushStateChange(machine.handleEvent(event, Date.now())),
+    onServerError: (err) => console.error('[buddy] server error:', err.message),
   });
 
   try {
@@ -1904,9 +2017,25 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => app.quit());
 
-app.on('before-quit', async () => {
+// Electron does not await an async 'before-quit' listener — it tears the
+// process down regardless, so `await server.close()` inside one is decorative.
+// Block the quit explicitly, finish cleanup, then quit again for real.
+app.on('before-quit', (event) => {
+  if (cleaningUp) return;
+  cleaningUp = true;
+
+  event.preventDefault();
   clearInterval(tickTimer);
-  if (server) await server.close();
+
+  // close() alone waits for every socket to drain, so a keep-alive client
+  // could stall the quit. Drop connections first to keep shutdown bounded.
+  if (server && typeof server.closeAllConnections === 'function') {
+    server.closeAllConnections();
+  }
+
+  Promise.resolve(server ? server.close() : undefined)
+    .catch(() => {})
+    .finally(() => app.quit());
 });
 ```
 
@@ -2049,10 +2178,31 @@ test('is idempotent', () => {
 });
 
 test('replaces a stale buddy hook rather than duplicating it', () => {
-  const settings = mergeHooks({}, buildHookEntries('/old/path/notify.js'));
+  // A real prior install always lives at <project>/hooks/notify.js, which is
+  // why SHIM_MARKER includes the directory component.
+  const settings = mergeHooks({}, buildHookEntries('/old/project/hooks/notify.js'));
   const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
   assert.equal(merged.hooks.Stop.length, 1, 'old buddy entry should be replaced');
   assert.ok(merged.hooks.Stop[0].hooks[0].command.includes(NOTIFY));
+});
+
+test('never clobbers an unrelated user hook that mentions notify.js', () => {
+  const settings = {
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'node /home/me/scripts/notify.js slack' }] },
+        { hooks: [{ type: 'command', command: 'echo unrelated' }] },
+      ],
+    },
+  };
+  const merged = mergeHooks(settings, buildHookEntries(NOTIFY));
+  const commands = merged.hooks.Stop.map((g) => g.hooks[0].command);
+  assert.ok(
+    commands.some((c) => c.includes('/home/me/scripts/notify.js')),
+    "the user's own notify.js hook must survive",
+  );
+  assert.ok(commands.some((c) => c === 'echo unrelated'));
+  assert.equal(merged.hooks.Stop.length, 3);
 });
 
 test('does not mutate the input settings object', () => {
@@ -2095,7 +2245,14 @@ const HOOK_EVENTS = Object.freeze({
   Notification: 'needsInput',
 });
 
-/** Marker used to recognise our own entries when re-running. */
+/**
+ * Marker used to recognise our own entries when re-running.
+ *
+ * The `hooks/` directory component is load-bearing: this string decides which
+ * existing entries get REPLACED. Matching on `notify.js` alone would silently
+ * delete a user's own unrelated hook that happens to run some other
+ * `notify.js` — data loss in the user's live Claude Code config.
+ */
 const SHIM_MARKER = 'hooks/notify.js';
 
 function buildHookEntries(notifyPath) {
@@ -2197,7 +2354,7 @@ Expected: PASS — 9 tests passing
 - [ ] **Step 5: Run the full suite**
 
 Run: `npm test`
-Expected: PASS — 54 tests passing (5 config + 18 state machine + 15 server + 7 notify + 9 install-hooks)
+Expected: PASS — 66 tests passing (9 config + 18 state machine + 16 server + 7 notify + 16 install-hooks)
 
 - [ ] **Step 6: Preview the hook installation**
 
@@ -2227,7 +2384,7 @@ git commit -m "feat: add idempotent hook installer for ~/.claude/settings.json"
 
 ## Phase 1 Definition of Done
 
-- [ ] `npm test` passes — 54 tests
+- [ ] `npm test` passes — 66 tests
 - [ ] `npm start` shows a transparent, always-on-top, draggable blob
 - [ ] Posting each of the six event types visibly changes the animation
 - [ ] One-shot states (`done`, `subagent`, `error`) settle back automatically
@@ -2250,3 +2407,23 @@ Explicitly out of scope here, in the spec's build order:
 - **Step 10** — `theme.schema.json`, `validate-theme`, `import-sprite`, the `_template` theme, `docs/THEMES.md`
 - The `working` state's trigger (spec §13 open question)
 - Click interactions and speech bubbles (spec §13)
+
+---
+
+## Post-implementation amendments
+
+Changes made during execution that this document's inline code predates. The
+committed source is authoritative.
+
+| Area | Amendment | Why |
+|---|---|---|
+| `package.json` | `npm test` is `node --test test/*.js` | A bare directory argument resolves as a module path on Node 22+ and fails |
+| `src/config.js` | Per-key validator table; unknown keys dropped | A string `idleTimeoutMinutes` became `NaN` downstream and the buddy never slept |
+| `src/server.js` | Permanent `error` listener + `onServerError` | The listener was removed after `listen()`, so a late socket error crashed the app |
+| `src/server.js` | `closeAllConnections()` | `close()` alone waits for sockets to drain; a keep-alive client could stall quit |
+| `src/main.js` | Resync renderer on `did-finish-load`, flagged `{resync:true}` | An event lost during page load wedged the machine in a one-shot state forever |
+| `src/renderer/procedural.js` | Ignore a same-state resync | Otherwise the resync restarted a live one-shot's settle timer |
+| `src/main.js` | `before-quit` uses `preventDefault` + re-quit | Electron does not await an async `before-quit` listener |
+| `tools/install-hooks.js` | `readSettings` throws on unreadable/malformed | Returning `{}` meant `--write` overwrote the user's live settings with hooks only |
+| `tools/install-hooks.js` | `backupPath()` never reuses a backup name | A second `--write` overwrote the only true pre-Buddy snapshot |
+| `tools/install-hooks.js` | Null-guard in `isBuddyEntry` | A malformed hooks array crashed the merge |

@@ -5,5 +5,14 @@
   "scale": 1.0,
   "alwaysOnTop": true,
   "width": 320,
-  "height": 320
+  "height": 320,
+  "theme": "procedural",
+  "sound": {
+    "enabled": true,
+    "volume": 0.5
+  },
+  "states": {
+    "done": { "scalePulse": 1.4 },
+    "needsInput": { "scalePulse": 1.2 }
+  }
 }

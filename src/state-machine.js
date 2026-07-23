@@ -107,12 +107,18 @@ function createStateMachine(options = {}) {
     },
 
     /**
-     * Drive the idle timeout. Only an idle buddy falls asleep, and only once:
-     * the state guard stops this re-firing every tick.
+     * Drive the idle timeout.
      * @returns {object|null}
      */
     tick(nowMs) {
-      if (state !== 'idle') return null;
+      // Sleep from ANY state once the timeout has elapsed, not just idle.
+      // `thinking` and `working` loop with no successor, so requiring idle here
+      // meant a session that ended mid-thinking kept the pet awake forever --
+      // and with a sprite theme that is a frame timer running indefinitely.
+      // Any event refreshes lastEventAt, so a genuinely busy session is
+      // unaffected: prolonged silence means the session is over regardless of
+      // which state it stopped in.
+      if (state === 'sleeping') return null;
       if (nowMs - lastEventAt < idleTimeoutMs) return null;
 
       const previous = state;

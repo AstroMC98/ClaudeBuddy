@@ -80,6 +80,15 @@ function createProceduralRenderer() {
       }
     },
 
+    setActive(isActive) {
+      if (!el) return;
+      el.style.display = isActive ? '' : 'none';
+      if (!isActive) {
+        clearTimeout(pulseTimer);
+        clearTimeout(settleTimer);
+      }
+    },
+
     destroy() {
       clearTimeout(pulseTimer);
       clearTimeout(settleTimer);

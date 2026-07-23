@@ -535,6 +535,12 @@ function readPngHeader(buffer) {
   const bitDepth = buffer[24];
   const colorType = buffer[25];
 
+  // The PNG spec requires both to be non-zero. Rejecting them here matters
+  // because a 0x0 sheet would sail through grid validation downstream: the
+  // derived frame size is 0/cols = 0, and the geometry check then compares
+  // 0 === 0 and passes.
+  if (width === 0 || height === 0) return null;
+
   const hasAlpha =
     colorType === COLOR_TYPE_RGBA ||
     colorType === COLOR_TYPE_GREY_ALPHA ||
@@ -2063,13 +2069,19 @@ In `src/renderer/index.html`, change the CSP meta tag to:
 ```html
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src data:;"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src data:;"
     />
 ```
 
-Two changes, both deliberate:
-- `media-src data:` so `new Audio(dataUri)` is permitted. `data:` is not a network origin, so the "zero outbound connections" guarantee is untouched.
-- `'unsafe-inline'` in `style-src` because the sprite renderer sets `style.backgroundPosition` on every frame. Inline *style attributes* require this; it does not permit inline `<script>`, which `script-src 'self'` still forbids.
+**Exactly one change:** `media-src data:`, so `new Audio(dataUri)` is permitted.
+`data:` is not a network origin, so the "zero outbound connections" guarantee is
+untouched.
+
+`style-src` stays `'self'` — do **not** add `'unsafe-inline'`. CSP governs
+inline `<style>` blocks and `style=""` attributes in markup; it does not govern
+CSSOM writes like `el.style.backgroundPosition = ...`, which is all the sprite
+renderer does. Verified empirically against this exact CSP: the property
+applied, a `data:` background image loaded, and zero violations were reported.
 
 - [ ] **Step 7: Wire asset loading into `src/main.js`**
 
@@ -2788,3 +2800,18 @@ git commit -m "feat: add per-state sound playback and per-state renderer selecti
 - **Click interactions** and **speech bubbles** (spec §13). The `/event` payload already carries `message`, so the door is open.
 - **`clickThrough`** (spec §6.3) — transparent pixels currently still capture clicks across the whole window.
 - **More Mochi sheets** — `idle`, `done`, `needsInput` and the rest, so the theme stops mixing a beagle with a blob.
+
+---
+
+## Post-implementation amendments
+
+Changes made during execution that this document's inline code predates. The
+committed source is authoritative.
+
+| Area | Amendment | Why |
+|---|---|---|
+| `src/renderer/index.html` | CSP keeps `style-src 'self'` — no `'unsafe-inline'` | CSP does not govern CSSOM writes like `el.style.x = y`, only inline `<style>` and `style=` attributes. Verified against the live renderer |
+| `src/png.js` | `readPngHeader` returns `null` for zero width or height | The PNG spec requires both `> 0`. A 0x0 sheet would pass grid validation, since the derived frame is `0/cols = 0` and the check becomes `0 === 0` |
+| `src/theme.js` | Strip frame height derived per-field from the sheet | Taking a declared `frame` wholesale left `height` undefined whenever the author wrote only a width — and it validated with zero errors |
+| `src/theme.js` | A frame declared **on a state** is validated against its grid | It was previously computed and silently discarded, so a wrong declared size produced no error |
+| `src/theme.js` | `ownFrame` distinguished from inherited `declaredFrame` | A top-level `frame` serves a theme's strip states; a grid state must not be failed merely for inheriting it |

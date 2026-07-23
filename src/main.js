@@ -6,8 +6,13 @@ const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require
 const { loadConfig } = require('./config.js');
 const { createStateMachine } = require('./state-machine.js');
 const { createEventServer } = require('./server.js');
+const { loadAssets } = require('./assets.js');
 
 const config = loadConfig();
+
+const PROJECT_ROOT = path.join(__dirname, '..');
+const assets = loadAssets(config, PROJECT_ROOT);
+for (const problem of assets.problems) console.warn(`[buddy] ${problem}`);
 
 /** How often to check whether the buddy should fall asleep. */
 const TICK_INTERVAL_MS = 15 * 1000;
@@ -47,17 +52,30 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A desktop pet never receives a user gesture, so Chromium's default
+      // autoplay policy would silently block every sound.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
   if (config.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
 
   // Apply config.scale by injecting a rule rather than widening the IPC
-  // surface. #stage carries no animation, so this cannot fight the keyframes
-  // that drive .buddy.
+  // surface. #stage's own pulse keyframe (styles.css) reads --base-scale and
+  // composes with it, so injecting the scale via a custom property here
+  // (rather than a plain `transform: scale()`) keeps the two from fighting
+  // over #stage's transform mid-animation.
   win.webContents.on('did-finish-load', () => {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
-    win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
+    win.webContents.insertCSS(
+      `#stage { --base-scale: ${scale}; transform: scale(calc(var(--base-scale) * var(--theme-scale, 1))); }`,
+    );
+
+    // Assets first: the renderer must know which theme it has before it is
+    // told which state to show, or the first state would render with the
+    // procedural fallback and then visibly swap.
+    win.webContents.send('assets', assets);
+
     // The renderer has only just subscribed; catch it up on anything it
     // missed while the page was loading. See machine.snapshot().
     //
@@ -82,6 +100,13 @@ function createTray(status) {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: status, enabled: false },
+      {
+        label: assets.theme ? `Theme: ${assets.theme.name}` : 'Theme: procedural',
+        enabled: false,
+      },
+      ...(assets.problems.length > 0
+        ? [{ label: `${assets.problems.length} asset problem(s) — see console`, enabled: false }]
+        : []),
       { type: 'separator' },
       {
         label: 'Test: done',

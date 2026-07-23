@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:;"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src data:;"
     />
     <title>Claude Buddy</title>
     <link rel="stylesheet" href="styles.css" />
@@ -12,7 +12,10 @@
   <body>
     <div id="stage"></div>
     <div id="badge" aria-live="polite"></div>
+    <script src="frame-math.js"></script>
     <script src="procedural.js"></script>
+    <script src="sprite.js"></script>
+    <script src="sound.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

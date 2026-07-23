@@ -53,7 +53,8 @@ function isBuddyEntry(group) {
     group &&
     Array.isArray(group.hooks) &&
     group.hooks.some(
-      (h) => typeof h.command === 'string' && h.command.replace(/\\/g, '/').includes(SHIM_MARKER),
+      (h) =>
+        h && typeof h.command === 'string' && h.command.replace(/\\/g, '/').includes(SHIM_MARKER),
     )
   );
 }
@@ -80,13 +81,49 @@ function settingsPath() {
   return path.join(os.homedir(), '.claude', 'settings.json');
 }
 
+/**
+ * Read the user's settings.
+ *
+ * A missing file is normal and yields `{}`. Anything else — unreadable,
+ * malformed, or not a JSON object — throws, because the caller's next move is
+ * to OVERWRITE this file. Treating an unreadable-but-present file as empty
+ * would silently discard every setting the user has.
+ */
 function readSettings(file) {
+  let raw;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return {};
+    throw new Error(`Could not read ${file}: ${err.message}`);
   }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${file} is not valid JSON (${err.message}). Refusing to touch it.`);
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${file} does not contain a JSON object. Refusing to touch it.`);
+  }
+
+  return parsed;
+}
+
+/**
+ * Pick a backup path that does not already exist.
+ *
+ * The first backup captures the user's true pre-Buddy configuration and is
+ * their only complete undo. A second --write must not clobber it.
+ */
+function backupPath(file) {
+  const base = `${file}.buddy-backup`;
+  if (!fs.existsSync(base)) return base;
+  let n = 2;
+  while (fs.existsSync(`${base}.${n}`)) n += 1;
+  return `${base}.${n}`;
 }
 
 function main() {
@@ -107,7 +144,7 @@ function main() {
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (fs.existsSync(file)) {
-    const backup = `${file}.buddy-backup`;
+    const backup = backupPath(file);
     fs.copyFileSync(file, backup);
     console.log(`Backed up existing settings to ${backup}`);
   }
@@ -116,6 +153,21 @@ function main() {
   console.log('Restart Claude Code for the hooks to take effect.');
 }
 
-if (require.main === module) main();
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error(`claude-buddy: ${err.message}`);
+    process.exitCode = 1;
+  }
+}
 
-module.exports = { buildHookEntries, mergeHooks, isBuddyEntry, HOOK_EVENTS, SHIM_MARKER };
+module.exports = {
+  buildHookEntries,
+  mergeHooks,
+  isBuddyEntry,
+  readSettings,
+  backupPath,
+  HOOK_EVENTS,
+  SHIM_MARKER,
+};

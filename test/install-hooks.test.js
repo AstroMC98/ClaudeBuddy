@@ -2,10 +2,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   buildHookEntries,
   mergeHooks,
+  readSettings,
+  backupPath,
   HOOK_EVENTS,
 } = require('../tools/install-hooks.js');
 
@@ -94,4 +99,53 @@ test('does not mutate the input settings object', () => {
   const snapshot = JSON.stringify(settings);
   mergeHooks(settings, buildHookEntries(NOTIFY));
   assert.equal(JSON.stringify(settings), snapshot);
+});
+
+test('readSettings returns empty for a missing file', () => {
+  const missing = path.join(os.tmpdir(), 'buddy-no-such-settings-93412.json');
+  assert.deepEqual(readSettings(missing), {});
+});
+
+test('readSettings throws rather than silently discarding a malformed file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-hooks-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '{ not json at all', 'utf8');
+  assert.throws(() => readSettings(file), /not valid JSON/);
+});
+
+test('readSettings throws when the file is a JSON non-object', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-hooks-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '[1,2,3]', 'utf8');
+  assert.throws(() => readSettings(file), /does not contain a JSON object/);
+});
+
+test('readSettings returns the parsed object for a valid file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-hooks-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '{"model":"opus"}', 'utf8');
+  assert.deepEqual(readSettings(file), { model: 'opus' });
+});
+
+test('backupPath never returns a path that already exists', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buddy-hooks-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '{}', 'utf8');
+
+  const first = backupPath(file);
+  assert.equal(first, `${file}.buddy-backup`);
+  fs.writeFileSync(first, 'original', 'utf8');
+
+  const second = backupPath(file);
+  assert.notEqual(second, first, 'must not clobber the original backup');
+  assert.equal(fs.existsSync(second), false);
+  fs.writeFileSync(second, 'second', 'utf8');
+
+  assert.equal(fs.readFileSync(first, 'utf8'), 'original', 'first backup must survive');
+  assert.notEqual(backupPath(file), second);
+});
+
+test('mergeHooks survives a malformed null entry in an existing hooks array', () => {
+  const settings = { hooks: { Stop: [{ hooks: [null, { type: 'command', command: 'echo hi' }] }] } };
+  assert.doesNotThrow(() => mergeHooks(settings, buildHookEntries(NOTIFY)));
 });

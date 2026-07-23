@@ -2354,7 +2354,7 @@ Expected: PASS — 9 tests passing
 - [ ] **Step 5: Run the full suite**
 
 Run: `npm test`
-Expected: PASS — 61 tests passing (9 config + 18 state machine + 16 server + 7 notify + 11 install-hooks)
+Expected: PASS — 66 tests passing (9 config + 18 state machine + 16 server + 7 notify + 16 install-hooks)
 
 - [ ] **Step 6: Preview the hook installation**
 
@@ -2384,7 +2384,7 @@ git commit -m "feat: add idempotent hook installer for ~/.claude/settings.json"
 
 ## Phase 1 Definition of Done
 
-- [ ] `npm test` passes — 61 tests
+- [ ] `npm test` passes — 66 tests
 - [ ] `npm start` shows a transparent, always-on-top, draggable blob
 - [ ] Posting each of the six event types visibly changes the animation
 - [ ] One-shot states (`done`, `subagent`, `error`) settle back automatically
@@ -2407,3 +2407,23 @@ Explicitly out of scope here, in the spec's build order:
 - **Step 10** — `theme.schema.json`, `validate-theme`, `import-sprite`, the `_template` theme, `docs/THEMES.md`
 - The `working` state's trigger (spec §13 open question)
 - Click interactions and speech bubbles (spec §13)
+
+---
+
+## Post-implementation amendments
+
+Changes made during execution that this document's inline code predates. The
+committed source is authoritative.
+
+| Area | Amendment | Why |
+|---|---|---|
+| `package.json` | `npm test` is `node --test test/*.js` | A bare directory argument resolves as a module path on Node 22+ and fails |
+| `src/config.js` | Per-key validator table; unknown keys dropped | A string `idleTimeoutMinutes` became `NaN` downstream and the buddy never slept |
+| `src/server.js` | Permanent `error` listener + `onServerError` | The listener was removed after `listen()`, so a late socket error crashed the app |
+| `src/server.js` | `closeAllConnections()` | `close()` alone waits for sockets to drain; a keep-alive client could stall quit |
+| `src/main.js` | Resync renderer on `did-finish-load`, flagged `{resync:true}` | An event lost during page load wedged the machine in a one-shot state forever |
+| `src/renderer/procedural.js` | Ignore a same-state resync | Otherwise the resync restarted a live one-shot's settle timer |
+| `src/main.js` | `before-quit` uses `preventDefault` + re-quit | Electron does not await an async `before-quit` listener |
+| `tools/install-hooks.js` | `readSettings` throws on unreadable/malformed | Returning `{}` meant `--write` overwrote the user's live settings with hooks only |
+| `tools/install-hooks.js` | `backupPath()` never reuses a backup name | A second `--write` overwrote the only true pre-Buddy snapshot |
+| `tools/install-hooks.js` | Null-guard in `isBuddyEntry` | A malformed hooks array crashed the merge |

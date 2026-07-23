@@ -232,16 +232,31 @@ module.exports = function rules(event, defaultBehavior) {
 
 ### 7.1 Layout
 
+Art moves through two tiers: **committed masters** and **generated runtime themes**.
+
 ```
-themes/                      ← gitignored; ships empty
+assets/sprites/<name>/       ← MASTER art. Committed. Owned by this repo.
+  Sleeping.png                  full-resolution source sheet, true alpha
+                                    │
+                                    │  npm run import-sprite
+                                    ▼
+themes/                      ← BUILD OUTPUT. Gitignored; ships empty.
   _template/                 ← committed exception: our own placeholder art
-    theme.json               ← fully commented reference manifest
-    _layout-guide.png        ← labelled frame-geometry guide
+    theme.json                  fully commented reference manifest
+    _layout-guide.png           labelled frame-geometry guide
     idle.png
-  my-pet/                    ← user's theme
+  mochi/                     ← generated from assets/sprites/mochi/
     theme.json
-    idle.png
+    sleeping.png
 ```
+
+**Why the split.** Masters are authored once and version-controlled; runtime
+themes are derived, regenerable, and therefore never committed. This also means
+third-party art a user drops into `themes/` is structurally impossible to
+redistribute by accident — the gitignore enforces the licensing policy rather
+than relying on discipline.
+
+Only art the project owns may live in `assets/`. See `assets/README.md`.
 
 ### 7.2 `theme.json`
 

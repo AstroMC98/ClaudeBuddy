@@ -1,9 +1,16 @@
 # Dependencies
 node_modules/
 
-# User-supplied themes are NEVER committed.
-# The repo ships no character artwork — see docs/superpowers/specs for rationale.
-# Exception: our own placeholder template theme.
+# --- Art pipeline: two tiers ---
+#
+#   assets/sprites/<name>/   MASTER art. Committed. Owned/licensed by this repo.
+#   themes/<name>/           BUILD OUTPUT from `npm run import-sprite`. Ignored.
+#
+# Runtime themes are generated, so they are regenerable and never committed.
+# This also means third-party art a user drops into themes/ can never be
+# redistributed by accident.
+#
+# Exception: our own placeholder template theme ships in the repo.
 themes/*
 !themes/_template/
 

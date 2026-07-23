@@ -1,0 +1,19 @@
+{
+  "name": "My Pet",
+  "author": "you",
+  "license": "CC0-1.0",
+  "scale": 1,
+
+  "frame": { "width": 128, "height": 128 },
+
+  "states": {
+    "idle": { "sheet": "idle.png", "frames": 4, "fps": 6, "loop": true },
+    "thinking": { "sheet": "thinking.png", "frames": 6, "fps": 10, "loop": true },
+    "working": { "sheet": "working.png", "frames": 8, "fps": 12, "loop": true },
+    "done": { "sheet": "done.png", "frames": 6, "fps": 12, "loop": false, "next": "idle" },
+    "needsInput": { "sheet": "knock.png", "frames": 4, "fps": 8, "loop": true },
+    "subagent": { "sheet": "blip.png", "frames": 3, "fps": 12, "loop": false, "next": "thinking" },
+    "error": { "sheet": "error.png", "frames": 4, "fps": 8, "loop": false, "next": "idle" },
+    "sleeping": { "sheet": "sleep.png", "frames": 2, "fps": 2, "loop": true }
+  }
+}

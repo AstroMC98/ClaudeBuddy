@@ -12,6 +12,15 @@ contextBridge.exposeInMainWorld('buddy', {
     ipcRenderer.on('state-change', (_event, change) => callback(change));
   },
 
+  /**
+   * Theme sheets and sounds, inlined as data URIs by the main process because
+   * the sandboxed renderer cannot read files. Delivered once, after load.
+   * @param {(assets: object) => void} callback
+   */
+  onAssets(callback) {
+    ipcRenderer.on('assets', (_event, assets) => callback(assets));
+  },
+
   /** Report that a non-looping animation has finished playing. */
   animationEnded() {
     ipcRenderer.send('animation-ended');

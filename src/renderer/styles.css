@@ -263,3 +263,11 @@ body {
 #badge.visible {
   opacity: 1;
 }
+
+/* Sprite-sheet renderer. Pixel art must not be smoothed when scaled. */
+.sprite {
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  -webkit-app-region: drag;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.35));
+}

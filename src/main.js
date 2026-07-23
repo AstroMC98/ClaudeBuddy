@@ -77,7 +77,12 @@ function createWindow() {
     win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
     // The renderer has only just subscribed; catch it up on anything it
     // missed while the page was loading. See currentStateChange().
-    pushStateChange(currentStateChange());
+    //
+    // Flagged as a resync so the renderer can ignore it when it is already
+    // showing this state: an event delivered after preload registered but
+    // before this fires was NOT lost, and replaying it would restart a live
+    // one-shot's settle timer and re-run its pulse.
+    pushStateChange({ ...currentStateChange(), resync: true });
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -159,6 +164,12 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   clearInterval(tickTimer);
+
+  // close() alone waits for every socket to drain, so a keep-alive client
+  // could stall the quit. Drop connections first to keep shutdown bounded.
+  if (server && typeof server.closeAllConnections === 'function') {
+    server.closeAllConnections();
+  }
 
   Promise.resolve(server ? server.close() : undefined)
     .catch(() => {})

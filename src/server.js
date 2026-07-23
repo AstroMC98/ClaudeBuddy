@@ -133,6 +133,12 @@ function createEventServer(options) {
     close() {
       return new Promise((resolve) => server.close(() => resolve()));
     },
+    /** Drop live sockets so a keep-alive client cannot stall shutdown. */
+    closeAllConnections() {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+    },
     address() {
       return server.address();
     },

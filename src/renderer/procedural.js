@@ -50,6 +50,13 @@ function createProceduralRenderer() {
     setState(change) {
       if (!el) return;
 
+      // A resync is main catching us up after a page load. If we are already
+      // showing this state we did not miss it, and re-applying would restart a
+      // live one-shot's settle timer and replay its pulse. A genuine repeat
+      // event (no resync flag) still replays, which is what you want when the
+      // same thing happens twice.
+      if (change.resync && change.state === currentState) return;
+
       if (currentState) el.classList.remove(`buddy--${currentState}`);
       currentState = change.state;
       el.classList.add(`buddy--${currentState}`);

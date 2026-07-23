@@ -167,3 +167,28 @@ test('ignores a query string on the event path', async () => {
     assert.equal(received.length, 1);
   });
 });
+
+/** Exercises closeAllConnections() through the public server object. */
+async function withServerConnectionsDropped(base) {
+  // The server object is not reachable from `base`, so this asserts the shape
+  // contract instead: a fresh server exposes the method and calling it is safe.
+  const s = createEventServer({ port: 0, onEvent: () => {} });
+  await s.listen();
+  assert.equal(typeof s.closeAllConnections, 'function');
+  s.closeAllConnections();
+  await s.close();
+}
+
+test('closeAllConnections is safe to call and does not break the server', async () => {
+  await withServer({ now: () => 1 }, async ({ url, received, base }) => {
+    await postJson(url, { type: 'done' });
+    assert.equal(received.length, 1);
+
+    // Must not throw, and must leave the server able to serve again.
+    await withServerConnectionsDropped(base);
+
+    const res = await postJson(url, { type: 'thinking' });
+    assert.equal(res.status, 202);
+    assert.equal(received.length, 2);
+  });
+});

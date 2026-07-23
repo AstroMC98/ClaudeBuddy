@@ -4,7 +4,7 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog } = require('electron');
 
 const { loadConfig } = require('./config.js');
-const { createStateMachine, ONE_SHOT } = require('./state-machine.js');
+const { createStateMachine } = require('./state-machine.js');
 const { createEventServer } = require('./server.js');
 
 const config = loadConfig();
@@ -28,23 +28,6 @@ function pushStateChange(change) {
   if (!change) return;
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state-change', change);
-}
-
-/**
- * The machine's current state, shaped as a StateChange, for resyncing the
- * renderer after a page load.
- *
- * `webContents.send` does not queue for a renderer that has not subscribed
- * yet, so an event arriving during startup is applied to the machine but never
- * displayed. For a one-shot state that is worse than a dropped frame: the
- * renderer never reports `animation-ended`, `completeOneShot()` never runs, the
- * machine stays stuck in `done`, and since `tick()` only sleeps from `idle` the
- * buddy would never sleep again either. Resyncing on load closes that window.
- */
-function currentStateChange() {
-  const state = machine.getState();
-  const next = Object.hasOwn(ONE_SHOT, state) ? ONE_SHOT[state] : null;
-  return { state, previous: null, loop: next === null, next };
 }
 
 function createWindow() {
@@ -76,13 +59,13 @@ function createWindow() {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
     win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
     // The renderer has only just subscribed; catch it up on anything it
-    // missed while the page was loading. See currentStateChange().
+    // missed while the page was loading. See machine.snapshot().
     //
     // Flagged as a resync so the renderer can ignore it when it is already
     // showing this state: an event delivered after preload registered but
     // before this fires was NOT lost, and replaying it would restart a live
     // one-shot's settle timer and re-run its pulse.
-    pushStateChange({ ...currentStateChange(), resync: true });
+    pushStateChange({ ...machine.snapshot(), resync: true });
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

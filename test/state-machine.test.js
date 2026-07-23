@@ -145,3 +145,20 @@ test('handling an event resets the idle timer', () => {
 test('the default idle timeout is ten minutes', () => {
   assert.equal(DEFAULT_IDLE_TIMEOUT_MS, 600000);
 });
+
+test('snapshot reports the current state with a null previous', () => {
+  const m = createStateMachine();
+  assert.deepEqual(m.snapshot(), { state: 'idle', previous: null, loop: true, next: null });
+  m.handleEvent({ type: 'done' }, 1000);
+  assert.deepEqual(m.snapshot(), { state: 'done', previous: null, loop: false, next: 'idle' });
+});
+
+test('snapshot matches the shape handleEvent produces', () => {
+  const m = createStateMachine();
+  const fromEvent = m.handleEvent({ type: 'needsInput' }, 1000);
+  const snap = m.snapshot();
+  assert.deepEqual(Object.keys(snap).sort(), Object.keys(fromEvent).sort());
+  assert.equal(snap.state, fromEvent.state);
+  assert.equal(snap.loop, fromEvent.loop);
+  assert.equal(snap.next, fromEvent.next);
+});

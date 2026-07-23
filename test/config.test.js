@@ -85,3 +85,16 @@ test('accepts a valid token string and an explicit null', () => {
   assert.equal(loadConfig(tempConfig('{"token":"s3cret"}')).token, 's3cret');
   assert.equal(loadConfig(tempConfig('{"token":null}')).token, null);
 });
+
+test('rejects port 0, which would silently break event delivery', () => {
+  const file = tempConfig(JSON.stringify({ port: 0 }));
+  assert.equal(loadConfig(file).port, DEFAULTS.port);
+});
+
+test('rejects absurd window dimensions', () => {
+  const file = tempConfig(JSON.stringify({ width: 50000000, height: 99999, scale: 500 }));
+  const cfg = loadConfig(file);
+  assert.equal(cfg.width, DEFAULTS.width);
+  assert.equal(cfg.height, DEFAULTS.height);
+  assert.equal(cfg.scale, DEFAULTS.scale);
+});

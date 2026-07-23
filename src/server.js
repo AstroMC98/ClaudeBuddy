@@ -66,6 +66,17 @@ function createEventServer(options) {
 
     if (path !== '/event') return send(res, 404, { error: 'not found' });
     if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
+
+    // A browser cannot omit Origin on a cross-site request, and cannot set
+    // application/json on a no-cors request. Together these keep a random web
+    // page from driving the pet, without needing credentials.
+    if (req.headers.origin !== undefined) {
+      return send(res, 403, { error: 'forbidden' });
+    }
+    if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) {
+      return send(res, 415, { error: 'unsupported media type' });
+    }
+
     if (token !== null && req.headers['x-buddy-token'] !== token) {
       return send(res, 401, { error: 'unauthorized' });
     }

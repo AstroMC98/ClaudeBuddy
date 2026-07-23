@@ -149,3 +149,13 @@ test('mergeHooks survives a malformed null entry in an existing hooks array', ()
   const settings = { hooks: { Stop: [{ hooks: [null, { type: 'command', command: 'echo hi' }] }] } };
   assert.doesNotThrow(() => mergeHooks(settings, buildHookEntries(NOTIFY)));
 });
+
+test('every installed hook maps to a real state-machine event type', () => {
+  const { EVENT_TYPES } = require('../src/state-machine.js');
+  for (const buddyEvent of Object.values(HOOK_EVENTS)) {
+    assert.ok(
+      EVENT_TYPES.includes(buddyEvent),
+      `${buddyEvent} is not a valid event type`,
+    );
+  }
+});

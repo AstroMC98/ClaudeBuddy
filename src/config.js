@@ -24,13 +24,13 @@ const DEFAULTS = Object.freeze({
  * here means every later module can trust the Config contract.
  */
 const VALIDATORS = Object.freeze({
-  port: (v) => Number.isInteger(v) && v >= 0 && v <= 65535,
+  port: (v) => Number.isInteger(v) && v >= 1 && v <= 65535,
   token: (v) => v === null || (typeof v === 'string' && v.length > 0),
   idleTimeoutMinutes: (v) => Number.isFinite(v) && v > 0,
-  scale: (v) => Number.isFinite(v) && v > 0,
+  scale: (v) => Number.isFinite(v) && v > 0 && v <= 8,
   alwaysOnTop: (v) => typeof v === 'boolean',
-  width: (v) => Number.isInteger(v) && v > 0,
-  height: (v) => Number.isInteger(v) && v > 0,
+  width: (v) => Number.isInteger(v) && v > 0 && v <= 4096,
+  height: (v) => Number.isInteger(v) && v > 0 && v <= 4096,
 });
 
 /** Path to the user's config file at the project root. */

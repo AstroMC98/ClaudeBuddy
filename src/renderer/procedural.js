@@ -38,6 +38,8 @@ function createProceduralRenderer() {
 
   return {
     mount(rootEl) {
+      // Re-mounting without destroying would orphan the previous element.
+      if (el) this.destroy();
       root = rootEl;
       el = build();
       root.appendChild(el);
@@ -71,7 +73,9 @@ function createProceduralRenderer() {
       // Tell the main process when a one-shot animation has finished.
       clearTimeout(settleTimer);
       if (!change.loop && change.next) {
-        const duration = ONE_SHOT_DURATION_MS[change.state] ?? 600;
+        const duration = Object.hasOwn(ONE_SHOT_DURATION_MS, change.state)
+          ? ONE_SHOT_DURATION_MS[change.state]
+          : 600;
         settleTimer = setTimeout(() => window.buddy.animationEnded(), duration);
       }
     },

@@ -110,6 +110,44 @@ test('rejects an oversized body', async () => {
   });
 });
 
+test('rejects a request carrying an Origin header', async () => {
+  await withServer({}, async ({ url, received }) => {
+    const res = await postJson(url, { type: 'done' }, { origin: 'https://evil.example' });
+    assert.equal(res.status, 403);
+    assert.equal(received.length, 0);
+  });
+});
+
+test('rejects a non-JSON content type', async () => {
+  await withServer({}, async ({ url, received }) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ type: 'done' }),
+    });
+    assert.equal(res.status, 415);
+    assert.equal(received.length, 0);
+  });
+});
+
+test('accepts application/json with a charset parameter', async () => {
+  await withServer({ now: () => 1 }, async ({ url, received }) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ type: 'done' }),
+    });
+    assert.equal(res.status, 202);
+    assert.equal(received.length, 1);
+  });
+});
+
+test('returns 404 for a sub-path of /event', async () => {
+  await withServer({}, async ({ base }) => {
+    assert.equal((await postJson(`${base}/event/foo`, { type: 'done' })).status, 404);
+  });
+});
+
 test('returns 404 for unknown paths', async () => {
   await withServer({}, async ({ base }) => {
     const res = await postJson(`${base}/nope`, { type: 'done' });

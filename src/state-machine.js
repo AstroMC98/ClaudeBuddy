@@ -71,6 +71,14 @@ function createStateMachine(options = {}) {
     },
 
     /**
+     * The current state shaped as a StateChange, for resyncing a renderer that
+     * has just loaded. `previous` is null because no transition occurred.
+     */
+    snapshot() {
+      return buildChange(state, null);
+    },
+
+    /**
      * Apply an incoming hook event. Any event interrupts the current animation:
      * responsiveness matters more than animation integrity.
      * @returns {object|null} the state change, or null if the event was ignored

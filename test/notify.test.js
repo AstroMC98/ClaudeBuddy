@@ -70,7 +70,8 @@ test('forwards the message from the stdin hook payload', async () => {
   const addr = await server.listen();
   try {
     const payload = JSON.stringify({ message: 'tests passed', cwd: '/work/proj' });
-    await runNotify(['done'], payload, { CLAUDE_BUDDY_PORT: String(addr.port) });
+    const { code } = await runNotify(['done'], payload, { CLAUDE_BUDDY_PORT: String(addr.port) });
+    assert.equal(code, 0);
     assert.equal(received[0].message, 'tests passed');
     assert.equal(received[0].cwd, '/work/proj');
   } finally {

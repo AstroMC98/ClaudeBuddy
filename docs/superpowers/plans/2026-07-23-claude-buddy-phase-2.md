@@ -764,6 +764,22 @@ test('carries next through for one-shot states', () => {
   assert.equal(theme.states.done.next, 'idle');
 });
 
+test('defaults offset to zero and accepts an explicit one', () => {
+  const plain = validateTheme(gridManifest(), { 'sleeping.png': SHEET });
+  assert.deepEqual(plain.theme.states.sleeping.offset, { x: 0, y: 0 });
+
+  const nudged = validateTheme(gridManifest({ offset: { y: -12 } }), { 'sleeping.png': SHEET });
+  assert.deepEqual(nudged.errors, []);
+  assert.deepEqual(nudged.theme.states.sleeping.offset, { x: 0, y: -12 });
+});
+
+test('rejects a non-integer or malformed offset', () => {
+  for (const bad of [{ y: 1.5 }, { x: 'left' }, 'down', [0, 1], null]) {
+    const { errors } = validateTheme(gridManifest({ offset: bad }), { 'sleeping.png': SHEET });
+    assert.equal(errors.length, 1, `should reject ${JSON.stringify(bad)}`);
+  }
+});
+
 test('resolveStateGeometry maps a frame index to a grid position', () => {
   const geom = resolveStateGeometry({ grid: { cols: 8, rows: 4 } }, SHEET);
   assert.deepEqual(geom.frame, { width: 240, height: 270 });
@@ -984,10 +1000,27 @@ function validateTheme(manifest, sheetInfo) {
       variants = entry.variants;
     }
 
+    let offset = { x: 0, y: 0 };
+    if (entry.offset !== undefined) {
+      const o = entry.offset;
+      const ok =
+        o !== null &&
+        typeof o === 'object' &&
+        !Array.isArray(o) &&
+        (o.x === undefined || Number.isInteger(o.x)) &&
+        (o.y === undefined || Number.isInteger(o.y));
+      if (!ok) {
+        errors.push(`state "${key}" has an invalid offset — expected {x, y} of whole pixels`);
+        continue;
+      }
+      offset = { x: o.x ?? 0, y: o.y ?? 0 };
+    }
+
     const range = entry.range ?? [0, total - 1];
 
     resolved[key] = {
       sheet: entry.sheet,
+      offset,
       frame: geom.frame,
       cols: geom.cols,
       rows: geom.rows,
@@ -1494,6 +1527,27 @@ reads as mechanical.
 
 `variantPick` is `"random"` (default) or `"sequential"`.
 
+## Aligning sheets that disagree
+
+Each sheet can look perfectly consistent on its own and still disagree with its
+siblings about where the ground is. When that happens the character visibly
+jumps as states swap — internally consistent, mutually wrong.
+
+The fix is a per-state pixel nudge:
+
+```jsonc
+"sleeping": { "sheet": "sleeping.png", "grid": {"cols":8,"rows":4}, "offset": { "y": -45 } }
+```
+
+`offset` shifts what is drawn inside the frame, in whole pixels. Negative `y`
+moves the character up. Use it when you cannot re-cut the art; prefer fixing the
+art itself when you can, since every sheet sharing one baseline needs no offsets
+at all.
+
+To find the number: note where the character's feet sit in each sheet and take
+the difference. Mochi's sheets are all pre-aligned to a baseline of y=250, so
+they need no offsets.
+
 ## The eight states
 
 | State | Fires when | Required |
@@ -1564,9 +1618,11 @@ Only art the project owns belongs in `assets/`. Anything you did not create
 belongs in `themes/`, which is gitignored — see [`../assets/README.md`](../assets/README.md).
 ```
 
-- [ ] **Step 7: Create the Mochi manifest beside its master art**
+- [ ] **Step 7: Confirm the Mochi manifest**
 
-Create `assets/sprites/mochi/theme.json`:
+`assets/sprites/mochi/theme.json` already exists and covers four states. Verify
+it matches this, and do not edit the sheets — they are pre-aligned to a shared
+baseline of y=250 within each 240x270 cell, so no `offset` is needed:
 
 ```json
 {
@@ -1576,6 +1632,9 @@ Create `assets/sprites/mochi/theme.json`:
   "scale": 0.6,
 
   "states": {
+    "idle":     { "sheet": "idle.png",    "grid": { "cols": 8, "rows": 1 }, "fps": 6,  "loop": true },
+    "working":  { "sheet": "working.png", "grid": { "cols": 8, "rows": 1 }, "fps": 12, "loop": true },
+    "error":    { "sheet": "error.png",   "grid": { "cols": 8, "rows": 1 }, "fps": 8,  "loop": false, "next": "idle" },
     "sleeping": {
       "sheet": "sleeping.png",
       "grid": { "cols": 8, "rows": 4 },
@@ -1588,8 +1647,11 @@ Create `assets/sprites/mochi/theme.json`:
 }
 ```
 
-`scale: 0.6` because a 240x270 frame renders large for a desktop pet; Mochi's
-body occupies roughly 200x115 of that frame.
+`scale: 0.6` because a 240x270 frame renders large for a desktop pet.
+
+Because `idle` is present, the four states Mochi does **not** define
+(`thinking`, `done`, `needsInput`, `subagent`) fall back to the idle art per
+spec §7.7 — so the pet is a beagle at all times, never a blob.
 
 - [ ] **Step 8: Build and validate the Mochi runtime theme**
 
@@ -1597,20 +1659,27 @@ Run:
 
 ```bash
 mkdir -p themes/mochi
-cp "assets/sprites/mochi/Sleeping.png" themes/mochi/sleeping.png
-cp "assets/sprites/mochi/theme.json" themes/mochi/theme.json
+cp assets/sprites/mochi/idle.png     themes/mochi/idle.png
+cp assets/sprites/mochi/working.png  themes/mochi/working.png
+cp assets/sprites/mochi/error.png    themes/mochi/error.png
+cp assets/sprites/mochi/sleeping.png themes/mochi/sleeping.png
+cp assets/sprites/mochi/theme.json   themes/mochi/theme.json
 npm run validate-theme -- themes/mochi
 ```
 
 Expected output:
 
 ```
-warning: no "idle" state — the procedural blob will be used for every state this theme omits
 themes/mochi is valid.
   theme:  Mochi
-  states: sleeping
+  states: idle, working, error, sleeping
+    idle: 8 frames of 240x270 @ 6fps
+    working: 8 frames of 240x270 @ 12fps
+    error: 8 frames of 240x270 @ 8fps
     sleeping: 32 frames of 240x270 @ 4fps, 4 variants
 ```
+
+No `idle` warning this time — the theme defines it.
 
 - [ ] **Step 9: Confirm the template theme fails cleanly**
 
@@ -2264,7 +2333,9 @@ function createSpriteRenderer(theme, sheets) {
 
   function show(spec, index) {
     const { x, y } = frameOffset(index, spec.cols, spec.frame);
-    el.style.backgroundPosition = `${x}px ${y}px`;
+    // spec.offset nudges a sheet whose baseline disagrees with its siblings,
+    // so the character does not jump vertically when states swap.
+    el.style.backgroundPosition = `${x + spec.offset.x}px ${y + spec.offset.y}px`;
   }
 
   /** How long to show borrowed `idle` art before acking a one-shot. */
@@ -2663,10 +2734,11 @@ Set `config.json` to:
 
 Run `npm start` and confirm:
 1. The tray reads `Theme: Mochi`
-2. The pet is the **procedural blob** at rest (Mochi has no `idle` state)
+2. The pet is a **sitting beagle** at rest, blinking — not the blob
 3. After ~6 seconds idle it becomes a **sleeping beagle**, animating at 4fps
-4. POSTing `done` switches back to the blob, which jumps
-5. Letting it idle again shows a sleeping beagle, sometimes in a **different pose** (four variants, picked at random)
+4. POSTing `error` plays the droop-and-curl, then returns to sitting
+5. POSTing `done` shows the **idle art** (Mochi defines no `done`), proving the §7.7 fallback — a beagle throughout, never a blob
+6. Letting it idle again shows a sleeping beagle, sometimes in a **different pose** (four variants, picked at random)
 
 Delete `config.json` afterwards to restore defaults.
 

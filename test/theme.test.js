@@ -198,3 +198,64 @@ test('resolveStateGeometry maps a frame index to a grid position', () => {
   assert.equal(geom.cols, 8);
   assert.equal(geom.totalFrames, 32);
 });
+
+test('derives a strip frame height from the sheet when only width is declared', () => {
+  const manifest = { name: 'S', frame: { width: 64 }, states: { idle: { sheet: 'idle.png', frames: 4 } } };
+  const { errors, theme } = validateTheme(manifest, {
+    'idle.png': { width: 256, height: 64, hasAlpha: true },
+  });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(theme.states.idle.frame, { width: 64, height: 64 });
+});
+
+test('rejects a strip whose declared frame height disagrees with the sheet', () => {
+  const manifest = {
+    name: 'S',
+    states: { idle: { sheet: 'idle.png', frames: 4, frame: { width: 64, height: 999 } } },
+  };
+  const { errors } = validateTheme(manifest, {
+    'idle.png': { width: 256, height: 64, hasAlpha: true },
+  });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /height/);
+});
+
+test('rejects a grid whose own declared frame disagrees with the grid', () => {
+  const manifest = {
+    name: 'G',
+    states: { idle: { sheet: 's.png', grid: { cols: 8, rows: 4 }, frame: { width: 999, height: 999 } } },
+  };
+  const { errors } = validateTheme(manifest, {
+    's.png': { width: 1920, height: 1080, hasAlpha: true },
+  });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /disagree/i);
+});
+
+test('a top-level frame does not conflict with a grid state', () => {
+  // The top-level frame serves this theme's strip state; the grid state
+  // derives its own size and must not be failed for inheriting it.
+  const manifest = {
+    name: 'Mixed',
+    frame: { width: 64, height: 64 },
+    states: {
+      idle: { sheet: 'idle.png', frames: 4 },
+      sleeping: { sheet: 's.png', grid: { cols: 8, rows: 4 } },
+    },
+  };
+  const { errors, theme } = validateTheme(manifest, {
+    'idle.png': { width: 256, height: 64, hasAlpha: true },
+    's.png': { width: 1920, height: 1080, hasAlpha: true },
+  });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(theme.states.idle.frame, { width: 64, height: 64 });
+  assert.deepEqual(theme.states.sleeping.frame, { width: 240, height: 270 });
+});
+
+test('handles a null or array states block without throwing', () => {
+  for (const bad of [{ states: null }, { states: [] }]) {
+    const { errors, theme } = validateTheme(bad, {});
+    assert.equal(theme, null, `${JSON.stringify(bad)} must not resolve a theme`);
+    assert.equal(errors.length, 1);
+  }
+});

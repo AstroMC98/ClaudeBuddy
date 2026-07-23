@@ -271,3 +271,23 @@ body {
   -webkit-app-region: drag;
   filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.35));
 }
+
+/* Per-state attention pulse, driven by config.states.<state>.scalePulse.
+ * #stage carries a --base-scale transform injected by main.js for
+ * config.scale; the keyframe composes with it rather than overriding it,
+ * so a pulse cannot snap the pet back to an unscaled size mid-animation. */
+#stage.pulsing {
+  animation: stagePulse 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes stagePulse {
+  0% {
+    transform: scale(var(--base-scale, 1));
+  }
+  45% {
+    transform: scale(calc(var(--base-scale, 1) * var(--pulse, 1.2)));
+  }
+  100% {
+    transform: scale(var(--base-scale, 1));
+  }
+}

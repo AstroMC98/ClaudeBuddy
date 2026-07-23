@@ -52,17 +52,22 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A desktop pet never receives a user gesture, so Chromium's default
+      // autoplay policy would silently block every sound.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
   if (config.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
 
   // Apply config.scale by injecting a rule rather than widening the IPC
-  // surface. #stage carries no animation, so this cannot fight the keyframes
-  // that drive .buddy.
+  // surface. #stage's own pulse keyframe (styles.css) reads --base-scale and
+  // composes with it, so injecting the scale via a custom property here
+  // (rather than a plain `transform: scale()`) keeps the two from fighting
+  // over #stage's transform mid-animation.
   win.webContents.on('did-finish-load', () => {
     const scale = Number(config.scale) > 0 ? Number(config.scale) : 1;
-    win.webContents.insertCSS(`#stage { transform: scale(${scale}); }`);
+    win.webContents.insertCSS(`#stage { --base-scale: ${scale}; transform: scale(var(--base-scale)); }`);
 
     // Assets first: the renderer must know which theme it has before it is
     // told which state to show, or the first state would render with the

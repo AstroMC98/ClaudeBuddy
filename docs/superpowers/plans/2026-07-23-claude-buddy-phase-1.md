@@ -17,7 +17,7 @@
 Every task's requirements implicitly include this section.
 
 - **Electron is the ONLY entry in `package.json` dependencies or devDependencies.** No Express, no test framework, no animation library, no HTTP client. If a task seems to need a package, it does not — use the Node standard library.
-- **Tests run via the built-in runner:** `npm test` → `node --test test/`. Never introduce Jest, Mocha, Vitest, or Chai.
+- **Tests run via the built-in runner:** `npm test` → `node --test test/*.js`. Never introduce Jest, Mocha, Vitest, or Chai. (The glob is required: on Node 22+, a bare directory argument is resolved as a module path and fails with `MODULE_NOT_FOUND`. Node expands the glob itself, so this works regardless of shell.)
 - **Node `>=20`** declared in `package.json` engines. Development machine is Node 24.16.0.
 - **The HTTP server binds to `127.0.0.1` only — never `0.0.0.0`.** This is a tested invariant, not a convention.
 - **Electron hardening is mandatory** on every `BrowserWindow`: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The window loads local files only and declares a strict CSP.
@@ -82,7 +82,7 @@ Every task's requirements implicitly include this section.
   },
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
+    "test": "node --test test/*.js",
     "install-hooks": "node tools/install-hooks.js"
   },
   "devDependencies": {

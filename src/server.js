@@ -116,8 +116,10 @@ function createEventServer(options) {
       if (event === null) return send(res, 400, { error: 'invalid event' });
 
       // A misbehaving listener must never kill the server or fail the hook.
+      // onEvent may be async (it can await the rules worker), so a synchronous
+      // try/catch alone would miss a rejected promise — absorb both.
       try {
-        onEvent(event);
+        Promise.resolve(onEvent(event)).catch(() => {});
       } catch {
         /* swallowed deliberately */
       }

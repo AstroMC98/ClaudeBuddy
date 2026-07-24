@@ -11,7 +11,8 @@
     "start": "electron .",
     "test": "node --test test/*.js",
     "install-hooks": "node tools/install-hooks.js",
-    "validate-theme": "node tools/validate-theme.js"
+    "validate-theme": "node tools/validate-theme.js",
+    "import-sprite": "electron tools/import-sprite.js"
   },
   "devDependencies": {
     "electron": "^43.2.0"

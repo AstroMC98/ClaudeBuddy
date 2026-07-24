@@ -27,6 +27,21 @@ test('drops runs shorter than minRun', () => {
   assert.deepEqual(detectBands(profile, { minRun: 2 }), [[2, 4]]);
 });
 
+test('applies minRun AFTER merging, so a merged band survives', () => {
+  // Two length-1 runs (each < minRun 2) with a 1-gap between them. Merge first
+  // -> one length-3 band [0,2] -> survives minRun 2. If minRun were applied
+  // before merge, both parts would be dropped and the band lost.
+  assert.deepEqual(detectBands([1, 0, 1], { mergeGap: 1, minRun: 2 }), [[0, 2]]);
+  // Same input without merging: both length-1 runs dropped by minRun.
+  assert.deepEqual(detectBands([1, 0, 1], { mergeGap: 0, minRun: 2 }), []);
+});
+
+test('mergeGap boundary holds at a gap size other than one', () => {
+  // Runs [0,0] and [3,3] have a 2-zero gap (indices 1,2).
+  assert.deepEqual(detectBands([1, 0, 0, 1], { mergeGap: 2 }), [[0, 3]]); // gap 2 <= 2 merges
+  assert.deepEqual(detectBands([1, 0, 0, 1], { mergeGap: 1 }), [[0, 0], [3, 3]]); // gap 2 > 1 does not
+});
+
 test('returns an empty list for an all-zero profile', () => {
   assert.deepEqual(detectBands([0, 0, 0], {}), []);
   assert.deepEqual(detectBands([], {}), []);

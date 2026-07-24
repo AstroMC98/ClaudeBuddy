@@ -163,6 +163,13 @@ async function run() {
     process.exitCode = 1;
     return;
   }
+  // A malformed hex key would silently key nothing (parseInt -> NaN, every
+  // comparison false), leaving the user with an un-keyed sheet and no clue why.
+  if (args.key && args.key !== 'checker' && args.key !== 'auto' && !/^#?[0-9a-fA-F]{6}$/.test(args.key)) {
+    console.error(`--key must be "checker", "auto", or a 6-digit hex colour like #88a0c0 (got "${args.key}")`);
+    process.exitCode = 1;
+    return;
+  }
 
   // A plain hidden window, NOT offscreen. This tool draws to a canvas and reads
   // it back with toDataURL — it never needs capturePage, so it does not need
@@ -232,6 +239,12 @@ async function run() {
       maxCols = Math.max(maxCols, colBands.length);
     }
     cols = maxCols;
+    if (rows === 0 || cols === 0) {
+      throw new Error(
+        `no sprites detected (rows=${rows}, cols=${cols}). Is the background transparent? ` +
+          `Try --key to remove a solid or checkerboard background first.`,
+      );
+    }
     // Frame size: widest sprite + padding, tallest row band; use uniform cell.
     frameW = Math.ceil(W / cols);
     frameH = Math.max(...rowBands.map(([a, b]) => b - a + 1)) + 20;
@@ -269,12 +282,22 @@ async function run() {
       idle: { sheet: path.basename(outPath), grid: { cols, rows }, fps: 6, loop: true },
     },
   };
+  // The stub maps everything to `idle`. Never clobber a real, hand-edited
+  // theme.json that already lives in the output directory — the whole point of
+  // editing the stub is lost if a re-import silently overwrites it.
   const stubPath = path.join(path.dirname(outPath), 'theme.json');
-  fs.writeFileSync(stubPath, `${JSON.stringify(stub, null, 2)}\n`);
+  const wroteStub = !fs.existsSync(stubPath);
+  if (wroteStub) {
+    fs.writeFileSync(stubPath, `${JSON.stringify(stub, null, 2)}\n`);
+  }
 
   console.log(`wrote ${outPath}`);
   console.log(`  ${header.width}x${header.height}, ${cols}x${rows} grid, ${frameW}x${frameH} frames, alpha=${header.hasAlpha}`);
-  console.log(`wrote ${stubPath} (edit the "states" map to assign frames to states)`);
+  console.log(
+    wroteStub
+      ? `wrote ${stubPath} (edit the "states" map to assign frames to states)`
+      : `kept existing ${stubPath} (not overwritten) — update its grid/sheet if needed`,
+  );
 
   win.destroy();
 }

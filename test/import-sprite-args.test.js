@@ -28,3 +28,15 @@ test('parses rows, key, out, name, scale, baseline', () => {
 test('leaves grid null when no grid flag is given', () => {
   assert.equal(parse('in.png', '--rows', '4').grid, null);
 });
+
+test('leaves grid null for a malformed grid value', () => {
+  // A bad grid (regex miss) must not become a partial/garbage grid.
+  assert.equal(parse('in.png', '--grid', '8X4').grid, null);
+  assert.equal(parse('in.png', '--grid', '8-4').grid, null);
+  assert.equal(parse('in.png', '--grid', 'lots').grid, null);
+});
+
+test('a non-numeric rows or scale parses to NaN (caller validates)', () => {
+  assert.equal(Number.isNaN(parse('in.png', '--rows', 'abc').rows), true);
+  assert.equal(Number.isNaN(parse('in.png', '--scale', 'abc').scale), true);
+});

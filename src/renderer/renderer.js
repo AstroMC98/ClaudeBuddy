@@ -8,6 +8,16 @@
   const procedural = window.createProceduralRenderer();
   procedural.mount(stage);
 
+  let pokeTimer = null;
+  // A poke: clicking the pet plays a quick wobble. Purely cosmetic and local.
+  stage.addEventListener('click', () => {
+    stage.classList.remove('poked');
+    void stage.offsetWidth; // restart the animation
+    stage.classList.add('poked');
+    clearTimeout(pokeTimer);
+    pokeTimer = setTimeout(() => stage.classList.remove("poked"), 420);
+  });
+
   /** Set once assets arrive; null means "procedural for everything". */
   let sprite = null;
   let sounds = null;

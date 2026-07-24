@@ -326,3 +326,13 @@ body {
   border-top-color: rgba(255, 255, 255, 0.96);
   border-bottom: 0;
 }
+
+/* Poke reaction: a quick wobble when the pet is clicked. */
+#stage.poked {
+  animation: poke 400ms ease-in-out;
+}
+@keyframes poke {
+  0%, 100% { transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1))) rotate(0deg); }
+  25% { transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1) * 1.06)) rotate(-5deg); }
+  75% { transform: scale(calc(var(--base-scale, 1) * var(--theme-scale, 1) * 1.06)) rotate(5deg); }
+}

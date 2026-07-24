@@ -10,6 +10,7 @@ const { loadAssets } = require('./assets.js');
 const { createRulesRunner } = require('./rules.js');
 const { defaultBehaviorFor } = require('./behavior.js');
 const { createSoundCache } = require('./sound-cache.js');
+const { loadState, saveState } = require('./state-store.js');
 
 const config = loadConfig();
 
@@ -33,6 +34,9 @@ let server = null;
 let tickTimer = null;
 let cleaningUp = false;
 
+const STATE_PATH = path.join(PROJECT_ROOT, 'state.json');
+let saveTimer = null;
+
 const machine = createStateMachine({
   idleTimeoutMs: config.idleTimeoutMinutes * 60 * 1000,
   now: Date.now(),
@@ -45,10 +49,18 @@ function pushStateChange(change) {
   win.webContents.send('state-change', change);
 }
 
+function initialPosition() {
+  if (config.position) return config.position; // explicit pin
+  const saved = loadState(STATE_PATH).position; // remember-last
+  return saved || null;
+}
+
 function createWindow() {
+  const pos = initialPosition();
   win = new BrowserWindow({
     width: config.width,
     height: config.height,
+    ...(pos ? { x: pos.x, y: pos.y } : {}),
     transparent: true,
     frame: false,
     resizable: false,
@@ -69,6 +81,18 @@ function createWindow() {
   });
 
   if (config.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
+
+  // Remember where the user drags the pet, unless the position is pinned.
+  if (!config.position) {
+    win.on('moved', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        if (!win || win.isDestroyed()) return;
+        const [x, y] = win.getPosition();
+        saveState(STATE_PATH, { position: { x, y } });
+      }, 400);
+    });
+  }
 
   // Apply config.scale by injecting a rule rather than widening the IPC
   // surface. #stage's own pulse keyframe (styles.css) reads --base-scale and
@@ -203,6 +227,7 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   clearInterval(tickTimer);
+  clearTimeout(saveTimer);
   rules.close().catch(() => {});
 
   // close() alone waits for every socket to drain, so a keep-alive client

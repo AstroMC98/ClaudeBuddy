@@ -178,3 +178,16 @@ test('isSafeRelativePath rejects traversal and absolute paths', () => {
   assert.equal(isSafeRelativePath('a\\b'), false);
   assert.equal(isSafeRelativePath(''), false);
 });
+
+test('accepts an explicit position and rejects a malformed one', () => {
+  assert.deepEqual(loadConfig(tempConfig('{"position":{"x":10,"y":20}}')).position, { x: 10, y: 20 });
+  assert.equal(loadConfig(tempConfig('{"position":{"x":10}}')).position, null);
+  assert.equal(loadConfig(tempConfig('{"position":[1,2]}')).position, null);
+  assert.equal(loadConfig(tempConfig('{"position":"middle"}')).position, null);
+});
+
+test('clickThrough defaults on and rejects a non-boolean', () => {
+  assert.equal(loadConfig(tempConfig('{}')).clickThrough, true);
+  assert.equal(loadConfig(tempConfig('{"clickThrough":false}')).clickThrough, false);
+  assert.equal(loadConfig(tempConfig('{"clickThrough":"yes"}')).clickThrough, true);
+});

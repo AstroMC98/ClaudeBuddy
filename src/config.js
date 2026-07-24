@@ -20,6 +20,8 @@ const DEFAULTS = Object.freeze({
   theme: PROCEDURAL_THEME,
   sound: Object.freeze({ enabled: true, volume: 0.5 }),
   states: Object.freeze({}),
+  position: null,
+  clickThrough: true,
 });
 
 /**
@@ -98,6 +100,8 @@ const VALIDATORS = Object.freeze({
   width: (v) => Number.isInteger(v) && v > 0 && v <= 4096,
   height: (v) => Number.isInteger(v) && v > 0 && v <= 4096,
   theme: isSafeThemeName,
+  position: (v) => v === null || (v !== null && typeof v === 'object' && !Array.isArray(v) && Number.isInteger(v.x) && Number.isInteger(v.y)),
+  clickThrough: (v) => typeof v === 'boolean',
 });
 
 /** Path to the user's config file at the project root. */

@@ -10,6 +10,7 @@ const { loadAssets } = require('./assets.js');
 const { createRulesRunner } = require('./rules.js');
 const { defaultBehaviorFor } = require('./behavior.js');
 const { createSoundCache } = require('./sound-cache.js');
+const { loadState, saveState } = require('./state-store.js');
 
 const config = loadConfig();
 
@@ -33,6 +34,9 @@ let server = null;
 let tickTimer = null;
 let cleaningUp = false;
 
+const STATE_PATH = path.join(PROJECT_ROOT, 'state.json');
+let saveTimer = null;
+
 const machine = createStateMachine({
   idleTimeoutMs: config.idleTimeoutMinutes * 60 * 1000,
   now: Date.now(),
@@ -45,10 +49,18 @@ function pushStateChange(change) {
   win.webContents.send('state-change', change);
 }
 
+function initialPosition() {
+  if (config.position) return config.position; // explicit pin
+  const saved = loadState(STATE_PATH).position; // remember-last
+  return saved || null;
+}
+
 function createWindow() {
+  const pos = initialPosition();
   win = new BrowserWindow({
     width: config.width,
     height: config.height,
+    ...(pos ? { x: pos.x, y: pos.y } : {}),
     transparent: true,
     frame: false,
     resizable: false,
@@ -70,6 +82,18 @@ function createWindow() {
 
   if (config.alwaysOnTop) win.setAlwaysOnTop(true, 'screen-saver');
 
+  // Remember where the user drags the pet, unless the position is pinned.
+  if (!config.position) {
+    win.on('moved', () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        if (!win || win.isDestroyed()) return;
+        const [x, y] = win.getPosition();
+        saveState(STATE_PATH, { position: { x, y } });
+      }, 400);
+    });
+  }
+
   // Apply config.scale by injecting a rule rather than widening the IPC
   // surface. #stage's own pulse keyframe (styles.css) reads --base-scale and
   // composes with it, so injecting the scale via a custom property here
@@ -85,6 +109,7 @@ function createWindow() {
     // told which state to show, or the first state would render with the
     // procedural fallback and then visibly swap.
     win.webContents.send('assets', assets);
+    win.webContents.send('interaction', { clickThrough: config.clickThrough });
 
     // The renderer has only just subscribed; catch it up on anything it
     // missed while the page was loading. See machine.snapshot().
@@ -144,7 +169,9 @@ async function startServer() {
     onEvent: async (event) => {
       // Fast path: no rules.js, behave exactly as before.
       if (!rules.active) {
-        pushStateChange(machine.handleEvent(event, Date.now()));
+        const change = machine.handleEvent(event, Date.now());
+        if (change && event.message) change.message = event.message;
+        pushStateChange(change);
         return;
       }
 
@@ -155,13 +182,12 @@ async function startServer() {
       const change = machine.handleEvent(event, Date.now());
       if (!change) return;
 
-      pushStateChange({
+      const payload = {
         ...change,
-        behavior: {
-          scalePulse: behavior.scalePulse,
-          soundUri: soundCache.resolve(behavior.sound),
-        },
-      });
+        message: event.message,
+        behavior: { scalePulse: behavior.scalePulse, soundUri: soundCache.resolve(behavior.sound) },
+      };
+      pushStateChange(payload);
     },
     onServerError: (err) => console.error('[buddy] server error:', err.message),
   });
@@ -186,6 +212,16 @@ app.whenReady().then(async () => {
   const status = await startServer();
   createTray(status);
 
+  if (config.clickThrough && win && !win.isDestroyed()) {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  ipcMain.on('set-interactive', (_e, isInteractive) => {
+    if (!config.clickThrough || !win || win.isDestroyed()) return;
+    if (isInteractive) win.setIgnoreMouseEvents(false);
+    else win.setIgnoreMouseEvents(true, { forward: true });
+  });
+
   // The renderer reports when a one-shot animation has played out.
   ipcMain.on('animation-ended', () => pushStateChange(machine.completeOneShot()));
 
@@ -203,6 +239,7 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   clearInterval(tickTimer);
+  clearTimeout(saveTimer);
   rules.close().catch(() => {});
 
   // close() alone waits for every socket to drain, so a keep-alive client

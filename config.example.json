@@ -14,5 +14,7 @@
   "states": {
     "done": { "scalePulse": 1.4 },
     "needsInput": { "scalePulse": 1.2 }
-  }
+  },
+  "position": null,
+  "clickThrough": true
 }

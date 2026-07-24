@@ -109,6 +109,7 @@ function createWindow() {
     // told which state to show, or the first state would render with the
     // procedural fallback and then visibly swap.
     win.webContents.send('assets', assets);
+    win.webContents.send('interaction', { clickThrough: config.clickThrough });
 
     // The renderer has only just subscribed; catch it up on anything it
     // missed while the page was loading. See machine.snapshot().
@@ -210,6 +211,16 @@ app.whenReady().then(async () => {
   createWindow();
   const status = await startServer();
   createTray(status);
+
+  if (config.clickThrough && win && !win.isDestroyed()) {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  ipcMain.on('set-interactive', (_e, isInteractive) => {
+    if (!config.clickThrough || !win || win.isDestroyed()) return;
+    if (isInteractive) win.setIgnoreMouseEvents(false);
+    else win.setIgnoreMouseEvents(true, { forward: true });
+  });
 
   // The renderer reports when a one-shot animation has played out.
   ipcMain.on('animation-ended', () => pushStateChange(machine.completeOneShot()));

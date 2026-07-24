@@ -105,4 +105,25 @@
   });
 
   window.buddy.onStateChange(applyState);
+
+  let clickThrough = false;
+  window.buddy.onInteraction((cfg) => {
+    clickThrough = Boolean(cfg && cfg.clickThrough);
+  });
+
+  // While click-through is on, tell main whether the cursor is over the pet's
+  // rendered box so it can toggle mouse capture. The window forwards mousemove
+  // even while ignoring clicks, so this keeps firing.
+  let overPet = false;
+  document.addEventListener('mousemove', (e) => {
+    if (!clickThrough) return;
+    const el = active === sprite && sprite ? document.querySelector('.sprite') : document.querySelector('.buddy');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (inside !== overPet) {
+      overPet = inside;
+      window.buddy.setInteractive(inside);
+    }
+  });
 })();

@@ -25,4 +25,14 @@ contextBridge.exposeInMainWorld('buddy', {
   animationEnded() {
     ipcRenderer.send('animation-ended');
   },
+
+  /** Tell main whether the cursor is over the pet (drives click-through). */
+  setInteractive(isInteractive) {
+    ipcRenderer.send('set-interactive', Boolean(isInteractive));
+  },
+
+  /** Receive interaction config (whether click-through is active). */
+  onInteraction(callback) {
+    ipcRenderer.on('interaction', (_event, cfg) => callback(cfg));
+  },
 });

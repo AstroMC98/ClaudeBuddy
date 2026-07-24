@@ -57,7 +57,18 @@ function createRulesRunner({ rulesPath, timeoutMs = DEFAULT_TIMEOUT_MS, onError 
       const onMessage = (msg) => {
         if (msg.id !== id) return;
         if (msg.ok) {
-          finish(sanitizeRulesResult(msg.result, defaultBehavior));
+          // This runs in an async EventEmitter callback, OUTSIDE the promise
+          // executor's implicit catch, so a throw here would be an uncaught
+          // exception on the MAIN process — the exact thing this module exists
+          // to prevent. sanitizeRulesResult does not throw on structured-cloned
+          // input today, but guard it anyway so the guarantee is unconditional.
+          let sanitized;
+          try {
+            sanitized = sanitizeRulesResult(msg.result, defaultBehavior);
+          } catch {
+            sanitized = { ...defaultBehavior };
+          }
+          finish(sanitized);
         } else {
           onError(msg.reason); // load error or user throw — reported, not fatal
           finish({ ...defaultBehavior });

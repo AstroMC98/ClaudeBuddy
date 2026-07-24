@@ -169,6 +169,47 @@ all times rather than switching to the procedural blob mid-session.
 Note the lowercase filenames. `theme.json` references `sleeping.png`, and a
 case-sensitive filesystem will not accept `Sleeping.png` in its place.
 
+## Importing messy art
+
+Source art rarely arrives theme-ready: SVGs wrap raster data behind masks, JPGs
+bake in a checkerboard where the transparency should be, and hand-laid-out
+sheets have rows that do not sit on a fixed grid. `tools/import-sprite.js` is a
+build-time CLI (run under Electron, since it needs a real canvas for SVG
+rasterization, `getImageData`, and `toDataURL`) that normalizes source art into
+a conforming PNG-32 sheet plus a `theme.json` stub:
+
+```bash
+npm run import-sprite -- <input> [options]
+```
+
+`<input>` may be `.svg`, `.png`, `.jpg`, `.jpeg`, or `.webp`. Pick one of two
+modes:
+
+- `--grid CxR` — the input is already laid out as a `C x R` grid; each cell is
+  normalized in place (content re-centred and baselined) at the derived frame
+  size. Use this for art that is gridded but whose content wobbles cell to
+  cell.
+- `--rows N` — auto-detect mode: find `N` sprite rows by alpha bands, then the
+  frames within each row, and re-composite everything onto a clean grid. Use
+  this when the source rows do not sit on a fixed grid at all.
+
+`--key MODE` strips a background before processing:
+
+- `checker` — a baked light/dark checkerboard
+- `auto` — the solid colour of the top-left pixel
+- `#RRGGBB` — a specific solid colour
+
+Other options: `--baseline N` (content-bottom target within each cell, default
+`cellH - 20`), `--scale S` (written into the `theme.json` stub, default `1`),
+`--name NAME` (theme name in the stub, default: input basename), `--out PATH`
+(output PNG path, default `<input dir>/<basename>.png`).
+
+The tool writes the sheet, self-checks it with `readPngHeader`, and prints the
+grid it produced. The emitted `theme.json` is only a **stub** — every frame is
+mapped to a single `idle` state spanning the whole sheet. Edit the `states` map
+by hand afterward to assign frame ranges (`range`, `variants`) to the states
+your theme actually needs; see "Ranges and variants" above.
+
 ## Licensing
 
 Only art the project owns belongs in `assets/`. Anything you did not create

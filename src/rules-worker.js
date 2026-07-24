@@ -38,3 +38,8 @@ parentPort.on('message', (msg) => {
     parentPort.postMessage({ id, ok: false, reason: String(err && err.message ? err.message : err) });
   }
 });
+
+// Signal readiness only AFTER the message handler is registered, so the main
+// side never posts a call the worker could miss. The main side gates every call
+// on this, keeping worker cold-start out of the per-call execution budget.
+parentPort.postMessage({ ready: true });

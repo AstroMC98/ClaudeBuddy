@@ -25,6 +25,32 @@ test('is inactive when rules.js does not exist', async () => {
   await runner.close();
 });
 
+test('worker cold-start does not count against the execution timeout', async () => {
+  // rules.js takes ~150ms to LOAD (a top-level busy-wait), far longer than the
+  // tiny 20ms execution budget. The override must still apply, because loading
+  // is bounded by the separate spawn budget, not the per-call execution one.
+  // Before the readiness gate, this first call spuriously fell back to default.
+  const file = writeRules(`
+    const start = Date.now();
+    while (Date.now() - start < 150) {} // slow module load
+    module.exports = (event, def) => ({ ...def, scalePulse: 2 });
+  `);
+  const runner = createRulesRunner({ rulesPath: file, timeoutMs: 20, spawnTimeoutMs: 3000 });
+  assert.deepEqual(await runner.run({ type: 'done' }, DEF), { sound: 'sounds/default.mp3', scalePulse: 2 });
+  await runner.close();
+});
+
+test('falls back to default if the worker never becomes ready in time', async () => {
+  // A module that never finishes loading exceeds the spawn budget; the call
+  // must fall back rather than hang forever.
+  const file = writeRules(`while (true) {} // never finishes loading`);
+  const runner = createRulesRunner({ rulesPath: file, spawnTimeoutMs: 100 });
+  const started = Date.now();
+  assert.deepEqual(await runner.run({ type: 'done' }, DEF), DEF);
+  assert.ok(Date.now() - started < 2000, 'should give up near the spawn budget');
+  await runner.close();
+});
+
 test('applies a valid override from rules.js', async () => {
   const file = writeRules(`
     module.exports = (event, def) => {

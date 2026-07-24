@@ -6,21 +6,41 @@ const { Worker } = require('node:worker_threads');
 
 const { sanitizeRulesResult } = require('./behavior.js');
 
+/** Bounds rules.js EXECUTION on an already-ready worker. */
 const DEFAULT_TIMEOUT_MS = 50;
+/**
+ * Bounds worker COLD START (thread spawn + `require(rules.js)`). Kept separate
+ * from and much larger than the execution budget: spawning a worker and loading
+ * a file legitimately takes tens of ms warm, and can spike far higher under load
+ * (an antivirus scanning the worker on first access, many workers spawning at
+ * once). Counting that against the 50ms execution budget would spuriously time
+ * out the FIRST real event and fall back to default even for a fast rules.js.
+ */
+const DEFAULT_SPAWN_TIMEOUT_MS = 5000;
 const WORKER_FILE = path.join(__dirname, 'rules-worker.js');
 
 /**
  * Run the user's rules.js off the main thread, hang-proof.
  *
+ * Two independent budgets: a generous one for the worker to start and load
+ * rules.js (readiness), and a tight one for each rules.js execution. A call
+ * waits for readiness first, THEN starts the execution clock — so worker
+ * cold-start is never mistaken for a slow rules function.
+ *
  * Calls are serialized: a single worker processes one event at a time, so a
  * reply can never be matched to the wrong call and a hang delays only the next
- * event by at most the timeout. On a hang the worker is terminated and the next
- * call respawns it.
+ * event. On a hang the worker is terminated and the next call respawns it.
  */
-function createRulesRunner({ rulesPath, timeoutMs = DEFAULT_TIMEOUT_MS, onError = () => {} }) {
+function createRulesRunner({
+  rulesPath,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  spawnTimeoutMs = DEFAULT_SPAWN_TIMEOUT_MS,
+  onError = () => {},
+}) {
   const active = fs.existsSync(rulesPath);
 
   let worker = null;
+  let ready = null; // Promise<boolean> — true once the worker signals it loaded rules.js
   let nextId = 1;
   let tail = Promise.resolve(); // serialization chain
   let closed = false;
@@ -28,63 +48,100 @@ function createRulesRunner({ rulesPath, timeoutMs = DEFAULT_TIMEOUT_MS, onError 
   function spawn() {
     const w = new Worker(WORKER_FILE, { workerData: { rulesPath } });
     worker = w;
-    // A worker that dies on its own (crash, process.exit in rules.js) must not
-    // throw at us; the in-flight call's timeout will fire and respawn. Null the
-    // handle only if THIS instance is still the current one — a later respawn
-    // may already have replaced it.
-    w.on('error', () => {});
-    w.on('exit', () => {
-      if (worker === w) worker = null;
-    });
-  }
 
-  /** One request/response round trip against the worker, with a timeout. */
-  function callWorker(event, defaultBehavior) {
-    return new Promise((resolve) => {
-      if (worker === null) spawn();
-      const id = nextId++;
-      const w = worker;
-
+    ready = new Promise((resolve) => {
       let settled = false;
-      const finish = (value) => {
+      const finishReady = (ok) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        w.off('message', onMessage);
+        w.off('message', onReady);
+        resolve(ok);
+      };
+      const onReady = (msg) => {
+        if (msg && msg.ready) finishReady(true);
+      };
+      const timer = setTimeout(() => {
+        onError(`rules.js worker did not become ready within ${spawnTimeoutMs}ms`);
+        finishReady(false);
+      }, spawnTimeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      w.on('message', onReady);
+    });
+
+    // A worker that dies on its own (crash, process.exit in rules.js) must not
+    // throw at us. Null the handle only if THIS instance is still current — a
+    // later respawn may already have replaced it.
+    w.on('error', () => {});
+    w.on('exit', () => {
+      if (worker === w) {
+        worker = null;
+        ready = null;
+      }
+    });
+  }
+
+  /** One request/response round trip: wait for readiness, then time execution. */
+  function callWorker(event, defaultBehavior) {
+    return new Promise((resolve) => {
+      if (worker === null) spawn();
+      const w = worker;
+      const readyForW = ready;
+
+      let settled = false;
+      let timer = null;
+      let onMessage = null;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (onMessage) w.off('message', onMessage);
         resolve(value);
       };
 
-      const onMessage = (msg) => {
-        if (msg.id !== id) return;
-        if (msg.ok) {
-          // This runs in an async EventEmitter callback, OUTSIDE the promise
-          // executor's implicit catch, so a throw here would be an uncaught
-          // exception on the MAIN process — the exact thing this module exists
-          // to prevent. sanitizeRulesResult does not throw on structured-cloned
-          // input today, but guard it anyway so the guarantee is unconditional.
-          let sanitized;
-          try {
-            sanitized = sanitizeRulesResult(msg.result, defaultBehavior);
-          } catch {
-            sanitized = { ...defaultBehavior };
-          }
-          finish(sanitized);
-        } else {
-          onError(msg.reason); // load error or user throw — reported, not fatal
+      readyForW.then((ok) => {
+        if (settled) return;
+        // Worker never started, or was replaced while we waited: fall back.
+        if (!ok || worker !== w) {
           finish({ ...defaultBehavior });
+          return;
         }
-      };
 
-      const timer = setTimeout(() => {
-        // Hang (or a lost worker): kill it so the next call starts fresh.
-        onError(`rules.js timed out after ${timeoutMs}ms and was terminated`);
-        w.terminate();
-        if (worker === w) worker = null;
-        finish({ ...defaultBehavior });
-      }, timeoutMs);
+        const id = nextId++;
+        onMessage = (msg) => {
+          if (msg.id !== id) return;
+          if (msg.ok) {
+            // Runs in an async EventEmitter callback, OUTSIDE the promise
+            // executor's implicit catch, so a throw here would be an uncaught
+            // exception on the MAIN process. sanitizeRulesResult does not throw
+            // on structured-cloned input today; guard it so that is unconditional.
+            let sanitized;
+            try {
+              sanitized = sanitizeRulesResult(msg.result, defaultBehavior);
+            } catch {
+              sanitized = { ...defaultBehavior };
+            }
+            finish(sanitized);
+          } else {
+            onError(msg.reason); // load error or user throw — reported, not fatal
+            finish({ ...defaultBehavior });
+          }
+        };
 
-      w.on('message', onMessage);
-      w.postMessage({ id, event, defaultBehavior });
+        timer = setTimeout(() => {
+          // Hang: kill the worker so the next call starts fresh.
+          onError(`rules.js timed out after ${timeoutMs}ms and was terminated`);
+          w.terminate();
+          if (worker === w) {
+            worker = null;
+            ready = null;
+          }
+          finish({ ...defaultBehavior });
+        }, timeoutMs);
+
+        w.on('message', onMessage);
+        w.postMessage({ id, event, defaultBehavior });
+      });
     });
   }
 
@@ -111,9 +168,10 @@ function createRulesRunner({ rulesPath, timeoutMs = DEFAULT_TIMEOUT_MS, onError 
       if (worker) {
         await worker.terminate();
         worker = null;
+        ready = null;
       }
     },
   };
 }
 
-module.exports = { createRulesRunner, DEFAULT_TIMEOUT_MS };
+module.exports = { createRulesRunner, DEFAULT_TIMEOUT_MS, DEFAULT_SPAWN_TIMEOUT_MS };

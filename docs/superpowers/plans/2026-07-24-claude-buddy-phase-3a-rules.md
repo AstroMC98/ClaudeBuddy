@@ -1032,3 +1032,26 @@ git commit -m "feat: resolve per-event behavior through rules.js and attach it t
 
 - **3B — `import-sprite`:** normalize messy source art (render SVG/JPG, chroma-key, trim, re-composite to a shared baseline) into a conforming sheet + `theme.json` stub, built on Electron's canvas.
 - **3C — interaction cluster:** click reactions, `clickThrough` (spec §6.3), position persistence to `state.json`, speech bubbles rendering `event.message`.
+
+---
+
+## Post-implementation amendment: readiness gate (Task 3)
+
+Final verification caught a flaky full-suite failure: the single 50ms timeout
+bounded worker COLD START (thread spawn + `require(rules.js)`) as well as
+execution. Under full-suite parallelism, spawn occasionally exceeded 50ms, so
+the FIRST call spuriously timed out and returned the default instead of the
+override — a real correctness bug (the first real event after startup could
+silently fall back under load), not merely a test flake.
+
+Fix: split the budget in two. `src/rules-worker.js` posts `{ready:true}` after
+registering its message handler; `src/rules.js` gates every call on that
+readiness (bounded by a generous `spawnTimeoutMs`, default 5000ms) and starts
+the tight `timeoutMs` (50ms) execution clock only once the worker is ready.
+Cold-start cost is therefore never mistaken for a slow rules function, while a
+genuine hang on a ready worker is still caught at ~50ms.
+
+Verified: full suite 10/10 clean after the change; a rules.js that takes 150ms
+to load still applies its override under a 20ms execution budget; a module that
+never finishes loading falls back near the spawn budget. Two regression tests
+added. The committed source is authoritative.

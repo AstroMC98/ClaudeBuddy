@@ -3,6 +3,7 @@
 (function main() {
   const stage = document.getElementById('stage');
   const badge = document.getElementById('badge');
+  const bubble = document.getElementById('bubble');
 
   const procedural = window.createProceduralRenderer();
   procedural.mount(stage);
@@ -13,6 +14,16 @@
   let stateConfig = {};
   let active = procedural;
   let badgeTimer = null;
+  let bubbleTimer = null;
+
+  function showBubble(message) {
+    if (!message) return;
+    // textContent, never innerHTML: the message is untrusted (hook/rules text).
+    bubble.textContent = message;
+    bubble.classList.add('visible');
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => bubble.classList.remove('visible'), 4000);
+  }
 
   /** The sprite renderer wins for any state its theme actually covers. */
   function rendererFor(state) {
@@ -57,6 +68,8 @@
     badge.classList.add('visible');
     clearTimeout(badgeTimer);
     badgeTimer = setTimeout(() => badge.classList.remove('visible'), 1600);
+
+    showBubble(change.message);
   }
 
   window.buddy.onAssets((assets) => {

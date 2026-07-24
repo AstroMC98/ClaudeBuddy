@@ -168,7 +168,9 @@ async function startServer() {
     onEvent: async (event) => {
       // Fast path: no rules.js, behave exactly as before.
       if (!rules.active) {
-        pushStateChange(machine.handleEvent(event, Date.now()));
+        const change = machine.handleEvent(event, Date.now());
+        if (change && event.message) change.message = event.message;
+        pushStateChange(change);
         return;
       }
 
@@ -179,13 +181,12 @@ async function startServer() {
       const change = machine.handleEvent(event, Date.now());
       if (!change) return;
 
-      pushStateChange({
+      const payload = {
         ...change,
-        behavior: {
-          scalePulse: behavior.scalePulse,
-          soundUri: soundCache.resolve(behavior.sound),
-        },
-      });
+        message: event.message,
+        behavior: { scalePulse: behavior.scalePulse, soundUri: soundCache.resolve(behavior.sound) },
+      };
+      pushStateChange(payload);
     },
     onServerError: (err) => console.error('[buddy] server error:', err.message),
   });

@@ -27,7 +27,13 @@
   let bubbleTimer = null;
 
   function showBubble(message) {
-    if (!message) return;
+    // A state change with no message hides any stale bubble — so a "needs
+    // input" prompt does not linger after the pet has moved on to working/done.
+    if (!message) {
+      clearTimeout(bubbleTimer);
+      bubble.classList.remove('visible');
+      return;
+    }
     // textContent, never innerHTML: the message is untrusted (hook/rules text).
     bubble.textContent = message;
     bubble.classList.add('visible');
@@ -125,5 +131,14 @@
       overPet = inside;
       window.buddy.setInteractive(inside);
     }
+  });
+
+  // Flicking the cursor off the pet and straight out of the window can skip the
+  // "left the box" mousemove, leaving the window capturing its whole rect and
+  // eating clicks in the transparent margin. Reset to pass-through on leave.
+  document.addEventListener('mouseleave', () => {
+    if (!clickThrough || !overPet) return;
+    overPet = false;
+    window.buddy.setInteractive(false);
   });
 })();

@@ -656,3 +656,28 @@ git commit -m "feat: add import-sprite CLI to normalize messy art into conformin
 ## Deferred to 3C
 
 Click reactions, `clickThrough`, position persistence, speech bubbles.
+
+---
+
+## Post-implementation amendments (Task 2)
+
+Controller verification on the real Mochi SVGs surfaced three defects, all in
+this plan's Electron design, none in the transcription:
+
+1. **The bootstrap guard was wrong.** `if (require.main === module)` is FALSE
+   under Electron — the entry's `require.main.filename` is literally `"electron"` —
+   so the CLI idled with no window forever. Gated on `process.versions.electron`
+   instead (defined under Electron, absent under `node --test`).
+2. **Per-call image re-decode.** Each `analyze` re-decoded the full multi-MB
+   image; 32 cells thrashed memory for minutes. The sheet is now decoded ONCE
+   into `window.__sheet` and every call references it.
+3. **Offscreen throttling.** An `offscreen: true` window throttles
+   `executeJavaScript` to ~seconds per call (32 calls timed out at 90s). The
+   tool uses `toDataURL`, not `capturePage`, so it needs no offscreen rendering:
+   switched to a plain hidden window with `backgroundThrottling: false` — 32
+   calls now run in ~6ms.
+
+Verified end to end: `import-sprite Sleeping.svg --grid 8x4` renders the
+feColorMatrix-masked SVG, writes a 1920x1080 alpha PNG in ~8s, emits a stub,
+and the output passes `validate-theme` and renders as a clean 32-frame beagle
+sheet. The committed source is authoritative.

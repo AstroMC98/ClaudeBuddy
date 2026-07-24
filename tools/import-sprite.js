@@ -48,8 +48,16 @@ function parseArgs(argv) {
   return args;
 }
 
-/** Load the source into an <img> inside an offscreen page and return its size. */
-async function renderToDataUrl(win, inputPath, key) {
+/**
+ * Decode the source ONCE and keep its pixels resident on the page's `window`,
+ * so the many per-cell `analyze` calls (up to cols*rows of them) and the final
+ * `composite` all reference the same already-decoded image instead of
+ * re-decoding a multi-megabyte data URL each time. Re-decoding per call turned
+ * a 32-cell grid into a multi-minute, memory-thrashing run.
+ *
+ * Returns the source dimensions.
+ */
+async function loadSheet(win, inputPath, key) {
   const bytes = fs.readFileSync(inputPath);
   const ext = path.extname(inputPath).toLowerCase();
   const mime =
@@ -59,8 +67,6 @@ async function renderToDataUrl(win, inputPath, key) {
     : 'image/jpeg';
   const srcUri = `data:${mime};base64,${bytes.toString('base64')}`;
 
-  // Draw the image to a canvas, optionally strip a background, return the
-  // full-size RGBA data URL plus dimensions.
   const script = `
     (async () => {
       const img = new Image();
@@ -72,9 +78,9 @@ async function renderToDataUrl(win, inputPath, key) {
       ctx.drawImage(img, 0, 0, W, H);
 
       const key = ${JSON.stringify(key)};
+      const imageData = ctx.getImageData(0, 0, W, H);
+      const d = imageData.data;
       if (key) {
-        const data = ctx.getImageData(0, 0, W, H);
-        const d = data.data;
         const px = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i+1], d[i+2]]; };
         const near = (a, b, tol) => Math.abs(a[0]-b[0]) <= tol && Math.abs(a[1]-b[1]) <= tol && Math.abs(a[2]-b[2]) <= tol;
         let match;
@@ -92,42 +98,37 @@ async function renderToDataUrl(win, inputPath, key) {
         for (let i = 0; i < d.length; i += 4) {
           if (match([d[i], d[i+1], d[i+2]])) d[i+3] = 0;
         }
-        ctx.putImageData(data, 0, 0);
+        ctx.putImageData(imageData, 0, 0);
       }
 
-      return { url: c.toDataURL('image/png'), W, H };
+      // Persist the decoded canvas and its pixel buffer for later calls.
+      window.__sheet = { W, H, canvas: c, data: d };
+      return { W, H };
     })()
   `;
   return win.webContents.executeJavaScript(script);
 }
 
-/** Column/row alpha profiles for a region, computed in the page. */
-async function analyze(win, dataUrl, region) {
+/** Column/row alpha profiles for a region of the resident sheet. No re-decode. */
+async function analyze(win, region) {
   const script = `
-    (async () => {
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = ${JSON.stringify(dataUrl)}; });
-      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(img, 0, 0);
+    (() => {
+      const s = window.__sheet, d = s.data, W = s.W, A = ${ALPHA_FLOOR};
       const { x0, y0, x1, y1 } = ${JSON.stringify(region)};
-      const data = ctx.getImageData(0, 0, img.width, img.height).data;
-      const W = img.width, A = ${ALPHA_FLOOR};
       const rowProfile = [], colProfile = [];
-      for (let y = y0; y <= y1; y++) { let n = 0; for (let x = x0; x <= x1; x++) if (data[(y*W+x)*4+3] > A) n++; rowProfile.push(n); }
-      for (let x = x0; x <= x1; x++) { let n = 0; for (let y = y0; y <= y1; y++) if (data[(y*W+x)*4+3] > A) n++; colProfile.push(n); }
+      for (let y = y0; y <= y1; y++) { let n = 0; for (let x = x0; x <= x1; x++) if (d[(y*W+x)*4+3] > A) n++; rowProfile.push(n); }
+      for (let x = x0; x <= x1; x++) { let n = 0; for (let y = y0; y <= y1; y++) if (d[(y*W+x)*4+3] > A) n++; colProfile.push(n); }
       return { rowProfile, colProfile };
     })()
   `;
   return win.webContents.executeJavaScript(script);
 }
 
-/** Composite a list of source rects onto a clean grid, return a PNG data URL. */
-async function composite(win, dataUrl, cells, frameW, frameH, cols, rows) {
+/** Composite source rects from the resident sheet onto a clean grid. */
+async function composite(win, cells, frameW, frameH, cols, rows) {
   const script = `
-    (async () => {
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = ${JSON.stringify(dataUrl)}; });
+    (() => {
+      const src = window.__sheet.canvas;
       const cells = ${JSON.stringify(cells)};
       const c = document.createElement('canvas');
       c.width = ${frameW} * ${cols}; c.height = ${frameH} * ${rows};
@@ -136,7 +137,7 @@ async function composite(win, dataUrl, cells, frameW, frameH, cols, rows) {
       cells.forEach((cell, i) => {
         const col = i % ${cols}, row = Math.floor(i / ${cols});
         ctx.drawImage(
-          img, cell.sx, cell.sy, cell.sw, cell.sh,
+          src, cell.sx, cell.sy, cell.sw, cell.sh,
           col * ${frameW} + cell.dx, row * ${frameH} + cell.dy, cell.sw, cell.sh,
         );
       });
@@ -163,13 +164,18 @@ async function run() {
     return;
   }
 
+  // A plain hidden window, NOT offscreen. This tool draws to a canvas and reads
+  // it back with toDataURL — it never needs capturePage, so it does not need
+  // offscreen rendering. Offscreen windows throttle executeJavaScript to
+  // seconds per call, which turned the many per-cell analyze calls into a
+  // multi-minute run; a hidden window with throttling disabled runs them in ms.
   const win = new BrowserWindow({
     show: false,
-    webPreferences: { offscreen: true, contextIsolation: true, sandbox: true },
+    webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   await win.loadURL('data:text/html,<!doctype html><meta charset="utf-8"><body></body>');
 
-  const { url: rendered, W, H } = await renderToDataUrl(win, args.input, args.key);
+  const { W, H } = await loadSheet(win, args.input, args.key);
 
   let cols;
   let rows;
@@ -189,7 +195,7 @@ async function run() {
       for (let cIdx = 0; cIdx < cols; cIdx += 1) {
         const x0 = cIdx * frameW;
         const y0 = r * frameH;
-        const { rowProfile, colProfile } = await analyze(win, rendered, { x0, y0, x1: x0 + frameW - 1, y1: y0 + frameH - 1 });
+        const { rowProfile, colProfile } = await analyze(win, { x0, y0, x1: x0 + frameW - 1, y1: y0 + frameH - 1 });
         const rBands = detectBands(rowProfile, { minRun: 1, mergeGap: 4 });
         const cBands = detectBands(colProfile, { minRun: 1, mergeGap: 4 });
         if (rBands.length === 0 || cBands.length === 0) {
@@ -210,7 +216,7 @@ async function run() {
   } else {
     rows = args.rows;
     // Detect the row bands across the whole sheet.
-    const whole = await analyze(win, rendered, { x0: 0, y0: 0, x1: W - 1, y1: H - 1 });
+    const whole = await analyze(win, { x0: 0, y0: 0, x1: W - 1, y1: H - 1 });
     const rowBands = detectBands(whole.rowProfile, { minRun: 40, mergeGap: 12 });
     if (rowBands.length !== rows) {
       console.warn(`warning: detected ${rowBands.length} row band(s), expected ${rows}; using detected count`);
@@ -220,7 +226,7 @@ async function run() {
     let maxCols = 0;
     const perRow = [];
     for (const [ry0, ry1] of rowBands) {
-      const prof = await analyze(win, rendered, { x0: 0, y0: ry0, x1: W - 1, y1: ry1 });
+      const prof = await analyze(win, { x0: 0, y0: ry0, x1: W - 1, y1: ry1 });
       const colBands = detectBands(prof.colProfile, { minRun: 8, mergeGap: 18 });
       perRow.push({ ry0, ry1, colBands });
       maxCols = Math.max(maxCols, colBands.length);
@@ -244,7 +250,7 @@ async function run() {
     }
   }
 
-  const outUrl = await composite(win, rendered, cells, frameW, frameH, cols, rows);
+  const outUrl = await composite(win, cells, frameW, frameH, cols, rows);
   const outBuf = dataUrlToBuffer(outUrl);
 
   const outPath = args.out ?? path.join(path.dirname(args.input), `${path.basename(args.input, path.extname(args.input))}.png`);
@@ -274,9 +280,14 @@ async function run() {
 }
 
 // Guard the Electron bootstrap so `require('./import-sprite.js')` from a
-// node --test file (for the parseArgs test) does not try to boot Electron,
-// which throws outside an Electron process.
-if (require.main === module) {
+// node --test file (for the parseArgs test) does not try to boot Electron.
+// Gate on `process.versions.electron`, NOT `require.main === module`: under
+// Electron the entry's require.main.filename is literally "electron", so
+// require.main === module is FALSE and the bootstrap would never run — the CLI
+// would idle with no window forever. `process.versions.electron` is defined
+// only under Electron and absent under plain `node --test`, which is exactly
+// the distinction we need.
+if (process.versions.electron) {
   app.disableHardwareAcceleration();
   app.whenReady().then(() =>
     run()

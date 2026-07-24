@@ -198,6 +198,25 @@ test('a throwing listener does not take down the server', async () => {
   }
 });
 
+test('an async-rejecting listener does not take down the server', async () => {
+  const server = createEventServer({
+    port: 0,
+    onEvent: async () => {
+      throw new Error('async listener rejected');
+    },
+  });
+  const addr = await server.listen();
+  try {
+    const url = `http://127.0.0.1:${addr.port}/event`;
+    // Two requests: if the first rejection crashed the process or the server,
+    // the second would fail to connect.
+    assert.equal((await postJson(url, { type: 'done' })).status, 202);
+    assert.equal((await postJson(url, { type: 'done' })).status, 202);
+  } finally {
+    await server.close();
+  }
+});
+
 test('ignores a query string on the event path', async () => {
   await withServer({ now: () => 1 }, async ({ base, received }) => {
     const res = await postJson(`${base}/event?from=hook`, { type: 'done' });

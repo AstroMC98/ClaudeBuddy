@@ -10,6 +10,7 @@
  */
 function createSoundPlayer({ sounds = {}, enabled = true, volume = 0.5 } = {}) {
   const cache = new Map();
+  const uriCache = new Map();
   let isEnabled = enabled;
 
   for (const [state, uri] of Object.entries(sounds)) {
@@ -34,6 +35,31 @@ function createSoundPlayer({ sounds = {}, enabled = true, volume = 0.5 } = {}) {
         // rather than surfacing an unhandled rejection every state change.
         const result = audio.play();
         if (result && typeof result.catch === 'function') result.catch(() => {});
+      } catch {
+        /* never let audio break the animation */
+      }
+    },
+
+    /**
+     * Play an ad-hoc sound delivered as a data URI (used when rules.js selects
+     * a sound per event). Cached by URI so a repeated sound is decoded once.
+     */
+    playUri(dataUri) {
+      if (!isEnabled || !dataUri) return;
+      let audio = uriCache.get(dataUri);
+      if (!audio) {
+        try {
+          audio = new Audio(dataUri);
+          audio.volume = Math.min(1, Math.max(0, volume));
+          uriCache.set(dataUri, audio);
+        } catch {
+          return;
+        }
+      }
+      try {
+        audio.currentTime = 0;
+        const r = audio.play();
+        if (r && typeof r.catch === 'function') r.catch(() => {});
       } catch {
         /* never let audio break the animation */
       }

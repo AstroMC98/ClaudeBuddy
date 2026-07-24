@@ -31,17 +31,27 @@
 
     target.setState(change);
 
-    // A per-state scalePulse is the "enlarging itself" attention behaviour.
-    const pulse = stateConfig[change.state] && stateConfig[change.state].scalePulse;
+    // When rules.js is active, main resolves the per-event behavior and attaches
+    // it here; otherwise fall back to the theme/config defaults the renderer
+    // already holds.
+    const behavior = change.behavior;
+
+    const pulse = behavior
+      ? behavior.scalePulse
+      : stateConfig[change.state] && stateConfig[change.state].scalePulse;
     if (Number.isFinite(pulse) && pulse !== 1) {
-      stage.style.transition = 'none';
       stage.style.setProperty('--pulse', String(pulse));
       stage.classList.remove('pulsing');
       void stage.offsetWidth;
       stage.classList.add('pulsing');
     }
 
-    if (sounds) sounds.play(change.state);
+    if (behavior) {
+      // soundUri: a data URI to play, or null for deliberate silence.
+      if (sounds && behavior.soundUri) sounds.playUri(behavior.soundUri);
+    } else if (sounds) {
+      sounds.play(change.state);
+    }
 
     badge.textContent = change.state;
     badge.classList.add('visible');

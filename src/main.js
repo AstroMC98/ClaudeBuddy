@@ -7,12 +7,22 @@ const { loadConfig } = require('./config.js');
 const { createStateMachine } = require('./state-machine.js');
 const { createEventServer } = require('./server.js');
 const { loadAssets } = require('./assets.js');
+const { createRulesRunner } = require('./rules.js');
+const { defaultBehaviorFor } = require('./behavior.js');
+const { createSoundCache } = require('./sound-cache.js');
 
 const config = loadConfig();
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const assets = loadAssets(config, PROJECT_ROOT);
 for (const problem of assets.problems) console.warn(`[buddy] ${problem}`);
+
+const soundCache = createSoundCache(PROJECT_ROOT);
+const rules = createRulesRunner({
+  rulesPath: path.join(PROJECT_ROOT, 'rules.js'),
+  onError: (reason) => console.warn(`[buddy] rules.js: ${reason}`),
+});
+if (rules.active) console.log('[buddy] rules.js is active');
 
 /** How often to check whether the buddy should fall asleep. */
 const TICK_INTERVAL_MS = 15 * 1000;
@@ -131,7 +141,28 @@ async function startServer() {
     host: '127.0.0.1',
     port: config.port,
     token: config.token,
-    onEvent: (event) => pushStateChange(machine.handleEvent(event, Date.now())),
+    onEvent: async (event) => {
+      // Fast path: no rules.js, behave exactly as before.
+      if (!rules.active) {
+        pushStateChange(machine.handleEvent(event, Date.now()));
+        return;
+      }
+
+      const def = defaultBehaviorFor(config, event);
+      const behavior = await rules.run(event, def);
+      if (behavior === null) return; // rules suppressed this event
+
+      const change = machine.handleEvent(event, Date.now());
+      if (!change) return;
+
+      pushStateChange({
+        ...change,
+        behavior: {
+          scalePulse: behavior.scalePulse,
+          soundUri: soundCache.resolve(behavior.sound),
+        },
+      });
+    },
     onServerError: (err) => console.error('[buddy] server error:', err.message),
   });
 
@@ -172,6 +203,7 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   clearInterval(tickTimer);
+  rules.close().catch(() => {});
 
   // close() alone waits for every socket to drain, so a keep-alive client
   // could stall the quit. Drop connections first to keep shutdown bounded.
